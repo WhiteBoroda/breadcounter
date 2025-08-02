@@ -4,7 +4,7 @@ from datetime import datetime
 from config_loader import ConfigLoader
 
 
-class CameraTest:
+class CameraTestHeadless:
     def __init__(self, config_file='cameras.yaml'):
         # Загружаем конфигурацию из YAML
         self.config = ConfigLoader(config_file)
@@ -18,22 +18,20 @@ class CameraTest:
         """Тестирование подключения к одной камере"""
         print(f"🔌 Тестируем подключение к {camera_config.oven_name} ({camera_config.camera_ip})...")
 
-        # Пробуем разные RTSP пути
+        # Пробуем разные RTSP пути согласно инструкции камеры
         rtsp_paths = [
-            f"rtsp://{camera_config.login}:{camera_config.password}@{camera_config.camera_ip}/stream1",
-            f"rtsp://{camera_config.login}:{camera_config.password}@{camera_config.camera_ip}/stream0",
-            f"rtsp://{camera_config.login}:{camera_config.password}@{camera_config.camera_ip}/live",
-            f"rtsp://{camera_config.login}:{camera_config.password}@{camera_config.camera_ip}/h264",
+            f"rtsp://{camera_config.login}:{camera_config.password}@{camera_config.camera_ip}:554/ch01/0",  # основной поток
+            f"rtsp://{camera_config.login}:{camera_config.password}@{camera_config.camera_ip}:554/ch01/1",  # дополнительный поток
+            f"rtsp://{camera_config.login}:{camera_config.password}@{camera_config.camera_ip}:554/ch01/2",  # мобильный поток
+            f"rtsp://{camera_config.login}:{camera_config.password}@{camera_config.camera_ip}/cam/realmonitor?channel=1&subtype=0",
         ]
 
         for rtsp_url in rtsp_paths:
             try:
                 safe_url = rtsp_url.replace(camera_config.password, '***')
                 print(f"   Пробуем: {safe_url}")
-                cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-#                cap = cv2.VideoCapture(rtsp_url)
-#                cap.set(cv2.CAP_PROP_BUFFER_SIZE, 1)
-#                cap.set(cv2.CAP_PROP_TIMEOUT, 5000)
+                cap = cv2.VideoCapture(rtsp_url)
+                # cap.set(cv2.CAP_PROP_BUFFER_SIZE, 1)  # Не поддерживается в этой версии OpenCV
 
                 if cap.isOpened():
                     ret, frame = cap.read()
@@ -75,74 +73,44 @@ class CameraTest:
         print(f"📊 Результат: {success_count}/{len(self.cameras)} камер подключено")
 
         if success_count > 0:
-            print("\n🎬 Запускаем предварительный просмотр...")
-            self.preview_cameras()
+            print("\n📸 Сохраняем тестовые кадры...")
+            self.save_test_frames()
+            
+            print("\n🧮 Эмулируем детекцию...")
+            self.simulate_counting()
 
         return success_count > 0
-
-    def preview_cameras(self):
-        """Предварительный просмотр с камер"""
-        print("👁️  Предварительный просмотр (нажмите 'q' для выхода)")
-        print("   [s] - сохранить кадры")
-        print("   [c] - проверить подсчет (эмуляция)")
-
-        frame_count = 0
-
-        while True:
-            display_frames = []
-
-            for oven_id, conn in self.connections.items():
-                ret, frame = conn['cap'].read()
-                if ret:
-                    config = conn['config']
-
-                    # Добавляем информацию на кадр
-                    cv2.putText(frame, f"{config.oven_name}",
-                                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    cv2.putText(frame, f"IP: {config.camera_ip}",
-                                (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                    cv2.putText(frame, f"Цех: {config.workshop_name}",
-                                (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-                    # Рисуем тестовые зоны подсчета
-                    h, w = frame.shape[:2]
-                    line_positions = [int(h * 0.3), int(h * 0.5), int(h * 0.7)]
-
-                    for i, y in enumerate(line_positions):
-                        color = [(255, 0, 0), (0, 255, 0), (0, 0, 255)][i]
-                        cv2.line(frame, (0, y), (w, y), color, 2)
-                        cv2.putText(frame, f"Zone {i + 1}", (w - 100, y - 5),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                    display_frames.append(frame)
-                    conn['last_frame'] = frame
-
-            # Показываем кадры
-            for i, frame in enumerate(display_frames):
-                cv2.imshow(f'Camera {list(self.connections.keys())[i]}', frame)
-
-            key = cv2.waitKey(1) & 0xFF
-
-            if key == ord('q'):
-                break
-            elif key == ord('s'):
-                self.save_test_frames()
-            elif key == ord('c'):
-                self.simulate_counting()
-
-            frame_count += 1
-            time.sleep(0.033)
-
-        cv2.destroyAllWindows()
 
     def save_test_frames(self):
         """Сохранение тестовых кадров"""
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
         for oven_id, conn in self.connections.items():
-            if 'last_frame' in conn:
+            # Получаем свежий кадр
+            ret, frame = conn['cap'].read()
+            if ret:
+                config = conn['config']
+                
+                # Добавляем информацию на кадр
+                cv2.putText(frame, f"{config.oven_name}",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                cv2.putText(frame, f"IP: {config.camera_ip}",
+                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                cv2.putText(frame, f"Цех: {config.workshop_name}",
+                            (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+                # Рисуем тестовые зоны подсчета
+                h, w = frame.shape[:2]
+                line_positions = [int(h * 0.3), int(h * 0.5), int(h * 0.7)]
+
+                for i, y in enumerate(line_positions):
+                    color = [(255, 0, 0), (0, 255, 0), (0, 0, 255)][i]
+                    cv2.line(frame, (0, y), (w, y), color, 2)
+                    cv2.putText(frame, f"Zone {i + 1}", (w - 100, y - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
                 filename = f"test_frame_oven{oven_id}_{timestamp}.jpg"
-                cv2.imwrite(filename, conn['last_frame'])
+                cv2.imwrite(filename, frame)
                 print(f"💾 Сохранен кадр: {filename}")
 
     def simulate_counting(self):
@@ -150,8 +118,8 @@ class CameraTest:
         print("🧮 Эмуляция детекции и подсчета...")
 
         for oven_id, conn in self.connections.items():
-            if 'last_frame' in conn:
-                frame = conn['last_frame']
+            ret, frame = conn['cap'].read()
+            if ret:
                 config = conn['config']
 
                 # Простая эмуляция подсчета
@@ -167,9 +135,66 @@ class CameraTest:
 
                 print(f"   {config.oven_name}: Обнаружено ~{bread_objects} объектов")
 
+    def test_stream_quality(self, duration_seconds=10):
+        """Тест качества потока"""
+        print(f"\n📡 Тест качества потока ({duration_seconds} секунд)...")
+        
+        for oven_id, conn in self.connections.items():
+            config = conn['config']
+            cap = conn['cap']
+            
+            print(f"\n🔥 {config.oven_name}:")
+            
+            frame_count = 0
+            start_time = time.time()
+            end_time = start_time + duration_seconds
+            
+            while time.time() < end_time:
+                ret, frame = cap.read()
+                if ret:
+                    frame_count += 1
+                time.sleep(0.1)  # 10 FPS тест
+            
+            actual_duration = time.time() - start_time
+            fps = frame_count / actual_duration
+            
+            print(f"   📊 Кадров получено: {frame_count}")
+            print(f"   🎬 FPS: {fps:.1f}")
+            print(f"   ⏱️  Время: {actual_duration:.1f} сек")
+
     def cleanup(self):
         """Очистка ресурсов"""
         for conn in self.connections.values():
             if 'cap' in conn:
                 conn['cap'].release()
-        cv2.destroyAllWindows()
+
+
+def main():
+    """Главная функция"""
+    try:
+        tester = CameraTestHeadless()
+        
+        if tester.test_all_cameras():
+            print("\n✅ Камеры работают! Можно переходить к следующему этапу:")
+            print("   1. Сбор данных: python training_pipeline.py")
+            print("   2. CPU система: python main_cpu_test.py")
+            
+            # Дополнительные тесты
+            choice = input("\nЗапустить тест качества потока? (y/n): ").strip().lower()
+            if choice == 'y':
+                tester.test_stream_quality()
+        else:
+            print("\n❌ Проблемы с подключением к камерам")
+            
+    except FileNotFoundError:
+        print("❌ Файл cameras.yaml не найден!")
+        print("   Создайте файл конфигурации")
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
+    finally:
+        if 'tester' in locals():
+            tester.cleanup()
+
+
+if __name__ == "__main__":
+    main()

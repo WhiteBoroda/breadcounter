@@ -2,7 +2,7 @@ cameras:
   - oven_id: 1
     camera_ip: "10.12.56.65"
     login: "admin"
-    password: "admin"  # Замените на актуальный пароль
+    password: "H3lloK1tty"  # ← ЗАМЕНИТЕ НА РЕАЛЬНЫЙ ПАРОЛЬ!
     oven_name: "Печь №1 Тестовая"
     workshop_name: "Цех №1"
     enterprise_name: "Хлебозавод Тест"
@@ -10,9 +10,9 @@ cameras:
   - oven_id: 2
     camera_ip: "10.12.56.66"
     login: "admin"
-    password: "admin"  # Замените на актуальный пароль
+    password: "H3lloK1tty"  # ← ЗАМЕНИТЕ НА РЕАЛЬНЫЙ ПАРОЛЬ!
     oven_name: "Печь №2 Тестовая"
-    workshop_name: "Цех №1"
+    workshop_name: "Цех №2"
     enterprise_name: "Хлебозавод Тест"
 
 # Настройки системы
