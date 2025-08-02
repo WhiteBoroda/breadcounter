@@ -1,0 +1,33 @@
+# Базовые ML пакеты
+tensorflow~=2.16.0
+numpy~=1.26.0
+opencv-python~=4.9.0
+Pillow~=10.2.0
+
+# Веб фреймворк
+Flask~=3.0.0
+Flask-CORS~=4.0.0
+gunicorn~=21.2.0
+
+# База данных
+SQLAlchemy~=2.0.25
+
+# Конфигурация
+PyYAML~=6.0.1
+requests~=2.31.0
+
+# YOLO и детекция
+ultralytics~=8.1.0
+scikit-learn~=1.4.0
+
+# Визуализация
+matplotlib~=3.8.0
+seaborn~=0.13.0
+
+# Утилиты
+colorlog~=6.8.0
+psutil~=5.8.0
+
+# Coral TPU Python bindings
+
+tflite-runtime~=2.16.0

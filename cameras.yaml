@@ -1,0 +1,42 @@
+cameras:
+  - oven_id: 1
+    camera_ip: "10.12.56.65"
+    login: "admin"
+    password: "admin"  # Замените на актуальный пароль
+    oven_name: "Печь №1 Тестовая"
+    workshop_name: "Цех №1"
+    enterprise_name: "Хлебозавод Тест"
+
+  - oven_id: 2
+    camera_ip: "10.12.56.66"
+    login: "admin"
+    password: "admin"  # Замените на актуальный пароль
+    oven_name: "Печь №2 Тестовая"
+    workshop_name: "Цех №1"
+    enterprise_name: "Хлебозавод Тест"
+
+# Настройки системы
+system:
+  tpu_devices: 1  # Количество Coral TPU устройств
+  frame_rate: 15  # FPS для каждой камеры
+  detection_threshold: 0.5  # Порог уверенности детекции
+  tracking_max_distance: 100  # Максимальное расстояние для трекинга
+
+# Настройки сбора данных для обучения
+data_collection:
+  output_dir: "training_data"
+  save_interval: 5  # Сохранять кадр каждые N секунд
+  video_duration: 30  # Минут сбора данных
+
+# Классы для детекции
+classes:
+  - name: "bread"
+    color: [0, 255, 0]  # Зеленый
+  - name: "circle"
+    color: [255, 0, 0]  # Синий
+  - name: "square"
+    color: [0, 0, 255]  # Красный
+  - name: "triangle"
+    color: [255, 255, 0]  # Голубой
+  - name: "defective_bread"
+    color: [0, 128, 255]  # Оранжевый
