@@ -44,9 +44,9 @@ class ImprovedTrainingApp:
         self.total_frames = 0
         self.video_cap = None
 
-        # Данные обучения
+        # Данные        обучения
         self.training_data = []
-        self.bread_types = ['white_bread', 'dark_bread', 'baton', 'molded_bread']
+        self.bread_types = ['white_bread', 'dark_bread', 'baton', 'molded_bread', 'defective_bread']
 
         self._setup_routes()
 
@@ -745,6 +745,23 @@ class ImprovedTrainingApp:
             border-color: #5a67d8;
         }
 
+        .bread-type-btn.defective {
+            border-color: #e53e3e;
+            color: #e53e3e;
+        }
+
+        .bread-type-btn.defective:hover {
+            border-color: #c53030;
+            background: #fed7d7;
+            color: #c53030;
+        }
+
+        .bread-type-btn.defective.active {
+            background: #e53e3e;
+            color: white;
+            border-color: #c53030;
+        }
+
         .progress-section {
             margin-top: 20px;
             padding: 15px;
@@ -858,6 +875,43 @@ class ImprovedTrainingApp:
             color: #667eea;
             font-style: italic;
         }
+
+        /* Стили для кастомных типов хлеба */
+        #customBreadForm input {
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        #customBreadForm input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .bread-type-btn {
+            position: relative;
+        }
+
+        .bread-type-btn .remove-btn {
+            position: absolute;
+            right: 5px;
+            top: 5px;
+            background: #e53e3e;
+            color: white;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            font-size: 12px;
+            line-height: 18px;
+            text-align: center;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .bread-type-btn:hover .remove-btn {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -886,6 +940,12 @@ class ImprovedTrainingApp:
                         <small style="color: #666;">Поддерживаются: MP4, AVI, MOV, MKV (до 5GB)</small>
                         <br><small style="color: #999;">Большие файлы загружаются по частям</small>
                     </div>
+
+                    <div style="margin-top: 20px; position: relative; z-index: 3; pointer-events: auto;">
+                        <button class="btn success" id="selectExistingVideo" style="width: 100%;">
+                            📂 Выбрать уже загруженный файл
+                        </button>
+                    </div>
                 </div>
 
                 <div class="progress-container" id="progressContainer">
@@ -913,6 +973,7 @@ class ImprovedTrainingApp:
                     <div style="margin-top: 15px;">
                         <button class="btn secondary" id="autoExtract">🚀 Авто-извлечение</button>
                         <button class="btn" id="saveAnnotation">💾 Сохранить разметку</button>
+                        <button class="btn secondary" id="markAllObjects" style="margin-top: 10px;">🏷️ Пометить все как выбранный тип</button>
                     </div>
                 </div>
             </div>
@@ -921,11 +982,30 @@ class ImprovedTrainingApp:
                 <h3>🎯 Управление обучением</h3>
 
                 <div class="bread-types">
-                    <h4>Тип хлеба:</h4>
-                    <button class="bread-type-btn active" data-type="white_bread">🍞 Белый хлеб</button>
-                    <button class="bread-type-btn" data-type="dark_bread">🍞 Черный хлеб</button>
-                    <button class="bread-type-btn" data-type="baton">🥖 Батон</button>
-                    <button class="bread-type-btn" data-type="molded_bread">📦 Хлеб в формах</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h4>Тип хлеба:</h4>
+                        <button class="btn secondary" id="addCustomBread" style="padding: 5px 10px; font-size: 12px;">
+                            ➕ Добавить
+                        </button>
+                    </div>
+
+                    <div id="breadTypesList">
+                        <button class="bread-type-btn active" data-type="white_bread">🍞 Белый хлеб</button>
+                        <button class="bread-type-btn" data-type="dark_bread">🍞 Черный хлеб</button>
+                        <button class="bread-type-btn" data-type="baton">🥖 Батон</button>
+                        <button class="bread-type-btn" data-type="molded_bread">📦 Хлеб в формах</button>
+                        <button class="bread-type-btn defective" data-type="defective_bread">❌ Брак</button>
+                    </div>
+
+                    <div id="customBreadForm" class="hidden" style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                        <h5>Добавить новый тип хлеба:</h5>
+                        <input type="text" id="customBreadName" placeholder="Например: Олександрівський, 0.7кг" 
+                               style="width: 100%; padding: 8px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn" id="saveCustomBread" style="flex: 1;">✅ Сохранить</button>
+                            <button class="btn secondary" id="cancelCustomBread" style="flex: 1;">❌ Отмена</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="detection-list" id="detectionList">
@@ -967,6 +1047,7 @@ class ImprovedTrainingApp:
         let selectedBreadType = 'white_bread';
         let uploadSessionId = null;
         let isUploading = false;
+        let customBreadTypes = []; // Кастомные типы хлеба
 
         // Настройки чанковой загрузки
         const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB чанки
@@ -1035,6 +1116,16 @@ class ImprovedTrainingApp:
             document.getElementById('startTraining').addEventListener('click', startTraining);
             document.getElementById('testServer').addEventListener('click', testServerConnection);
             document.getElementById('loadExisting').addEventListener('click', loadExistingVideo);
+            document.getElementById('markAllObjects').addEventListener('click', markAllObjects);
+
+            // Новые обработчики
+            document.getElementById('selectExistingVideo').addEventListener('click', selectExistingVideo);
+            document.getElementById('addCustomBread').addEventListener('click', showCustomBreadForm);
+            document.getElementById('saveCustomBread').addEventListener('click', saveCustomBread);
+            document.getElementById('cancelCustomBread').addEventListener('click', hideCustomBreadForm);
+
+            // Загрузка сохраненных кастомных типов хлеба
+            loadCustomBreadTypes();
         }
 
         function handleDragEnter(e) {
@@ -1192,89 +1283,8 @@ class ImprovedTrainingApp:
         }
 
         function loadExistingVideo() {
-            showStatus('Загрузка списка файлов...', 'info');
-
-            fetch('/list_uploaded_videos')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.videos && data.videos.length > 0) {
-                        showVideoListDialog(data.videos);
-                    } else {
-                        showStatus('В папке uploads нет видео файлов', 'info');
-                    }
-                })
-                .catch(error => {
-                    showStatus('Ошибка получения списка файлов: ' + error.message, 'error');
-                });
-        }
-
-        function showVideoListDialog(videos) {
-            // Создаем модальное окно со списком видео
-            const modal = document.createElement('div');
-            modal.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.5);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 1000;
-            `;
-
-            const dialog = document.createElement('div');
-            dialog.style.cssText = `
-                background: white;
-                border-radius: 15px;
-                padding: 30px;
-                max-width: 600px;
-                max-height: 80vh;
-                overflow-y: auto;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            `;
-
-            let html = `
-                <h3 style="margin-bottom: 20px;">📁 Выберите видео файл</h3>
-                <div class="file-list">
-            `;
-
-            videos.forEach((video, index) => {
-                const sizeText = video.size_gb > 1 ? 
-                    `${video.size_gb} GB` : 
-                    `${video.size_mb} MB`;
-
-                html += `
-                    <div class="file-item" onclick="selectVideoFile('${video.filename}')">
-                        <div class="file-name">${video.filename}</div>
-                        <div class="file-details">${sizeText} • ${video.modified}</div>
-                    </div>
-                `;
-            });
-
-            html += `
-                </div>
-                <div style="margin-top: 20px; text-align: right;">
-                    <button class="btn secondary" onclick="closeVideoDialog()">Отмена</button>
-                </div>
-            `;
-
-            dialog.innerHTML = html;
-            modal.appendChild(dialog);
-            document.body.appendChild(modal);
-
-            // Добавляем функции в глобальную область
-            window.selectVideoFile = function(filename) {
-                closeVideoDialog();
-                loadSelectedVideo(filename);
-            };
-
-            window.closeVideoDialog = function() {
-                document.body.removeChild(modal);
-                delete window.selectVideoFile;
-                delete window.closeVideoDialog;
-            };
+            // Используем новую функцию выбора видео
+            selectExistingVideo();
         }
 
         function loadSelectedVideo(filename) {
@@ -1294,7 +1304,7 @@ class ImprovedTrainingApp:
                     uploadArea.classList.add('hidden');
                     videoSection.classList.remove('hidden');
 
-                    showStatus(result.message, 'success');
+                    showStatus(`✅ ${result.message}`, 'success');
                     loadFrame(0);
                 } else {
                     showStatus(result.error, 'error');
@@ -1367,14 +1377,37 @@ class ImprovedTrainingApp:
                 return;
             }
 
-            let html = '<h5>Найденные объекты:</h5>';
+            const defectiveCount = currentDetections.filter(d => d.is_defective).length;
+            const totalCount = currentDetections.length;
+            const defectRate = totalCount > 0 ? (defectiveCount / totalCount * 100).toFixed(1) : 0;
+
+            let html = `
+                <h5>Найденные объекты: ${totalCount}</h5>
+                <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
+                    ✅ Норма: ${totalCount - defectiveCount} | ❌ Брак: ${defectiveCount} (${defectRate}%)
+                </div>
+            `;
+
             currentDetections.forEach((detection, index) => {
+                const defectiveClass = detection.is_defective ? 'style="background: #fed7d7; border-left: 4px solid #e53e3e;"' : '';
+
                 html += `
-                    <div class="detection-item" onclick="highlightDetection(${index})">
-                        <strong>ID ${detection.id}</strong><br>
-                        Размер: ${detection.area}px²<br>
-                        Уверенность: ${(detection.confidence * 100).toFixed(1)}%<br>
-                        Тип: ${detection.type === 'unknown' ? 'Не определен' : detection.type}
+                    <div class="detection-item" ${defectiveClass} onclick="highlightDetection(${index})">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong>ID ${detection.id}</strong><br>
+                                Размер: ${detection.area}px²<br>
+                                Уверенность: ${(detection.confidence * 100).toFixed(1)}%<br>
+                                Тип: ${detection.type === 'unknown' ? 'Не определен' : detection.type}
+                                ${detection.is_defective ? '<br><span style="color: #e53e3e;">❌ БРАК</span>' : ''}
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <button class="btn" style="padding: 5px 10px; font-size: 12px;" 
+                                        onclick="markAsDefective(${index}); event.stopPropagation();">
+                                    ${detection.is_defective ? '✅ Норма' : '❌ Брак'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 `;
             });
@@ -1383,12 +1416,7 @@ class ImprovedTrainingApp:
 
         function selectBreadType(type) {
             selectedBreadType = type;
-
-            document.querySelectorAll('.bread-type-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-
-            document.querySelector(`[data-type="${type}"]`).classList.add('active');
+            rebuildBreadTypesList(); // Обновляем активные кнопки
         }
 
         function saveCurrentAnnotation() {
@@ -1397,10 +1425,17 @@ class ImprovedTrainingApp:
                 return;
             }
 
+            // Подсчитываем брак
+            const defectiveCount = currentDetections.filter(d => d.is_defective).length;
+            const totalCount = currentDetections.length;
+
             const annotationData = {
                 frame_index: currentFrame,
                 annotations: currentDetections,
-                bread_type: selectedBreadType
+                bread_type: selectedBreadType,
+                defective_count: defectiveCount,
+                total_count: totalCount,
+                defect_rate: (defectiveCount / totalCount * 100).toFixed(1)
             };
 
             fetch('/annotate_frame', {
@@ -1411,7 +1446,7 @@ class ImprovedTrainingApp:
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    showStatus('Аннотация сохранена!', 'success');
+                    showStatus(`Аннотация сохранена! Брак: ${defectiveCount}/${totalCount} (${annotationData.defect_rate}%)`, 'success');
                     updateTrainingProgress();
                     navigateFrame(1); // Переходим к следующему кадру
                 } else {
@@ -1518,8 +1553,263 @@ class ImprovedTrainingApp:
             console.log('Выбрана детекция:', currentDetections[index]);
         }
 
+        function markAsDefective(index) {
+            if (index >= 0 && index < currentDetections.length) {
+                const detection = currentDetections[index];
+                detection.is_defective = !detection.is_defective;
+
+                // Обновляем отображение
+                updateDetectionList();
+
+                // Показываем статус
+                const status = detection.is_defective ? 'помечен как БРАК' : 'помечен как НОРМА';
+                showStatus(`Объект ID ${detection.id} ${status}`, 'info');
+
+                console.log(`Detection ${detection.id} marked as ${detection.is_defective ? 'defective' : 'normal'}`);
+            }
+        }
+
         // Обновляем прогресс каждые 30 секунд
         setInterval(updateTrainingProgress, 30000);
+
+        // ===== ФУНКЦИИ ДЛЯ РАБОТЫ С СУЩЕСТВУЮЩИМИ ВИДЕО =====
+
+        function selectExistingVideo() {
+            showStatus('Загрузка списка существующих файлов...', 'info');
+
+            fetch('/list_uploaded_videos')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.videos && data.videos.length > 0) {
+                        showVideoSelectionDialog(data.videos);
+                    } else {
+                        showStatus('В папке uploads нет загруженных видео файлов', 'warning');
+                    }
+                })
+                .catch(error => {
+                    showStatus('Ошибка получения списка файлов: ' + error.message, 'error');
+                });
+        }
+
+        function showVideoSelectionDialog(videos) {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.7);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 2000;
+            `;
+
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                background: white;
+                border-radius: 15px;
+                padding: 30px;
+                max-width: 700px;
+                max-height: 80vh;
+                overflow-y: auto;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            `;
+
+            let html = `
+                <h3 style="margin-bottom: 20px; color: #2d3748;">📂 Выберите видео для обучения</h3>
+                <div style="margin-bottom: 20px; color: #718096; font-size: 14px;">
+                    Найдено ${videos.length} загруженных видео файлов
+                </div>
+                <div class="file-list" style="max-height: 400px; overflow-y: auto;">
+            `;
+
+            videos.forEach((video, index) => {
+                const sizeText = video.size_gb > 1 ? 
+                    `${video.size_gb} GB` : 
+                    `${video.size_mb} MB`;
+
+                html += `
+                    <div class="file-item" onclick="selectVideoFromDialog('${video.filename}')" 
+                         style="padding: 15px; margin: 10px 0; border: 2px solid #e2e8f0; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div class="file-name" style="font-weight: bold; color: #2d3748; margin-bottom: 5px;">
+                                    🎬 ${video.filename}
+                                </div>
+                                <div class="file-details" style="font-size: 12px; color: #718096;">
+                                    📦 ${sizeText} • 🗓️ ${video.modified}
+                                </div>
+                            </div>
+                            <div style="color: #667eea; font-size: 24px;">▶️</div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `
+                </div>
+                <div style="margin-top: 25px; text-align: right; border-top: 1px solid #e2e8f0; padding-top: 20px;">
+                    <button class="btn secondary" onclick="closeVideoSelectionDialog()" style="margin-right: 10px;">❌ Отмена</button>
+                    <button class="btn" onclick="refreshVideoList()">🔄 Обновить список</button>
+                </div>
+            `;
+
+            dialog.innerHTML = html;
+            modal.appendChild(dialog);
+            document.body.appendChild(modal);
+
+            // Добавляем стили для hover эффекта
+            const fileItems = modal.querySelectorAll('.file-item');
+            fileItems.forEach(item => {
+                item.addEventListener('mouseenter', () => {
+                    item.style.borderColor = '#667eea';
+                    item.style.backgroundColor = '#f8f9ff';
+                    item.style.transform = 'translateY(-2px)';
+                });
+                item.addEventListener('mouseleave', () => {
+                    item.style.borderColor = '#e2e8f0';
+                    item.style.backgroundColor = 'white';  
+                    item.style.transform = 'translateY(0)';
+                });
+            });
+
+            // Глобальные функции для модального окна
+            window.selectVideoFromDialog = function(filename) {
+                closeVideoSelectionDialog();
+                loadSelectedVideo(filename);
+            };
+
+            window.closeVideoSelectionDialog = function() {
+                document.body.removeChild(modal);
+                delete window.selectVideoFromDialog;
+                delete window.closeVideoSelectionDialog;
+                delete window.refreshVideoList;
+            };
+
+            window.refreshVideoList = function() {
+                closeVideoSelectionDialog();
+                selectExistingVideo();
+            };
+        }
+
+        // ===== ФУНКЦИИ ДЛЯ КАСТОМНЫХ ТИПОВ ХЛЕБА =====
+
+        function loadCustomBreadTypes() {
+            const savedTypes = localStorage.getItem('customBreadTypes');
+            if (savedTypes) {
+                try {
+                    customBreadTypes = JSON.parse(savedTypes);
+                    rebuildBreadTypesList();
+                } catch (e) {
+                    console.warn('Ошибка загрузки кастомных типов хлеба:', e);
+                }
+            }
+        }
+
+        function saveCustomBreadTypes() {
+            localStorage.setItem('customBreadTypes', JSON.stringify(customBreadTypes));
+        }
+
+        function showCustomBreadForm() {
+            document.getElementById('customBreadForm').classList.remove('hidden');
+            document.getElementById('customBreadName').focus();
+        }
+
+        function hideCustomBreadForm() {
+            document.getElementById('customBreadForm').classList.add('hidden');
+            document.getElementById('customBreadName').value = '';
+        }
+
+        function saveCustomBread() {
+            const name = document.getElementById('customBreadName').value.trim();
+
+            if (!name) {
+                showStatus('Введите название хлеба', 'warning');
+                return;
+            }
+
+            // Проверяем на дубликаты
+            const typeId = 'custom_' + name.toLowerCase().replace(/[^a-zA-Zа-яА-Я0-9]/g, '_');
+            const existingType = customBreadTypes.find(t => t.id === typeId);
+
+            if (existingType) {
+                showStatus('Такой тип хлеба уже существует', 'warning');
+                return;
+            }
+
+            // Добавляем новый тип
+            const newType = {
+                id: typeId,
+                name: name,
+                emoji: '🍞',
+                created: new Date().toISOString()
+            };
+
+            customBreadTypes.push(newType);
+            saveCustomBreadTypes();
+            rebuildBreadTypesList();
+            hideCustomBreadForm();
+
+            showStatus(`Добавлен новый тип хлеба: "${name}"`, 'success');
+        }
+
+        function rebuildBreadTypesList() {
+            const container = document.getElementById('breadTypesList');
+
+            // Базовые типы
+            let html = `
+                <button class="bread-type-btn ${selectedBreadType === 'white_bread' ? 'active' : ''}" data-type="white_bread">🍞 Белый хлеб</button>
+                <button class="bread-type-btn ${selectedBreadType === 'dark_bread' ? 'active' : ''}" data-type="dark_bread">🍞 Черный хлеб</button>
+                <button class="bread-type-btn ${selectedBreadType === 'baton' ? 'active' : ''}" data-type="baton">🥖 Батон</button>
+                <button class="bread-type-btn ${selectedBreadType === 'molded_bread' ? 'active' : ''}" data-type="molded_bread">📦 Хлеб в формах</button>
+            `;
+
+            // Кастомные типы
+            customBreadTypes.forEach(type => {
+                html += `
+                    <button class="bread-type-btn ${selectedBreadType === type.id ? 'active' : ''}" 
+                            data-type="${type.id}" 
+                            style="position: relative;">
+                        ${type.emoji} ${type.name}
+                        <span onclick="removeCustomBread('${type.id}'); event.stopPropagation();" 
+                              style="position: absolute; right: 5px; top: 5px; background: #e53e3e; color: white; border-radius: 50%; width: 18px; height: 18px; font-size: 12px; line-height: 18px; text-align: center; cursor: pointer;">
+                            ×
+                        </span>
+                    </button>
+                `;
+            });
+
+            // Брак в конце
+            html += `<button class="bread-type-btn defective ${selectedBreadType === 'defective_bread' ? 'active' : ''}" data-type="defective_bread">❌ Брак</button>`;
+
+            container.innerHTML = html;
+
+            // Переназначаем обработчики
+            container.querySelectorAll('.bread-type-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    if (!e.target.closest('span')) { // Если не кликнули на кнопку удаления
+                        selectBreadType(e.target.dataset.type);
+                    }
+                });
+            });
+        }
+
+        function removeCustomBread(typeId) {
+            if (confirm('Удалить этот тип хлеба?')) {
+                customBreadTypes = customBreadTypes.filter(t => t.id !== typeId);
+                saveCustomBreadTypes();
+
+                // Если удаляемый тип был выбран, переключаемся на белый хлеб
+                if (selectedBreadType === typeId) {
+                    selectedBreadType = 'white_bread';
+                }
+
+                rebuildBreadTypesList();
+                showStatus('Тип хлеба удален', 'info');
+            }
+        }
     </script>
 </body>
 </html>
@@ -1534,7 +1824,7 @@ class ImprovedTrainingApp:
         # Увеличиваем таймауты для больших файлов
         self.app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
-        self.app.run(host=host, port=port, debug=debug, threaded=True)  # 1 час таймаут
+        self.app.run(host=host, port=port, debug=debug, threaded=True)
 
 
 if __name__ == "__main__":
