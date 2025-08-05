@@ -1,6 +1,6 @@
 # improved_interactive_training_web.py - Улучшенный веб-интерфейс с загрузкой больших файлов
 from flask import Flask, render_template_string, request, jsonify, send_file, url_for
-from zone_training_module import add_zone_routes_to_app, ZoneManager, ZONE_INTERFACE_JS
+from intelligent_training_system import IntelligentTrainingManager, add_intelligent_training_routes, INTELLIGENT_TRAINING_JS
 from flask_cors import CORS
 import cv2
 import numpy as np
@@ -47,11 +47,12 @@ class ImprovedTrainingApp:
 
         # Данные        обучения
         self.training_data = []
-        self.bread_types = ['white_bread', 'dark_bread', 'baton', 'molded_bread', 'defective_bread']
-        self.zone_manager = ZoneManager()
+
+        self.intelligent_training_manager = IntelligentTrainingManager()
 
         self._setup_routes()
-        add_zone_routes_to_app(self.app, self.zone_manager)
+        add_intelligent_training_routes(self.app, self.intelligent_training_manager)
+
 
 
     def _setup_routes(self):
@@ -282,13 +283,13 @@ class ImprovedTrainingApp:
             else:
                 return jsonify({'error': 'Ошибка сохранения'}), 400
 
-        @self.app.route('/get_training_progress')
-        def get_training_progress():
-            return jsonify({
-                'total_annotations': len(self.training_data),
-                'bread_types_count': self._count_bread_types(),
-                'ready_for_training': len(self.training_data) >= 100
-            })
+#        @self.app.route('/get_training_progress')
+#        def get_training_progress():
+#            return jsonify({
+#                'total_annotations': len(self.training_data),
+#                'bread_types_count': self._count_bread_types(),
+#                'ready_for_training': len(self.training_data) >= 100
+#            })
 
         @self.app.route('/start_training', methods=['POST'])
         def start_training():
@@ -341,7 +342,7 @@ class ImprovedTrainingApp:
                 print(f"First frame read successfully: {frame.shape}")
                 # Возвращаемся к началу
                 self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                self.zone_manager.video_path = filepath
+                self.intelligent_training_manager.video_path = filepath
                 return True
             else:
                 print("Failed to read first frame")
@@ -1817,7 +1818,7 @@ class ImprovedTrainingApp:
         }
     </script>
     <script>
-        ''' + ZONE_INTERFACE_JS + '''
+        ''' + INTELLIGENT_TRAINING_JS + '''
     </script>
 </body>
 </html>

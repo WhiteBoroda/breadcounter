@@ -12,10 +12,11 @@ import time
 from datetime import datetime, date
 from pathlib import Path
 import base64
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, Decimal, ForeignKey, Text, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Date, ForeignKey, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.sql import func
+from sqlalchemy.types import DECIMAL
 
 Base = declarative_base()
 
@@ -26,7 +27,7 @@ class Product(Base):
 
     sku_code = Column(String(50), primary_key=True)
     name = Column(String(200), nullable=False)
-    weight = Column(Decimal(5, 3))  # Вес в кг
+    weight = Column(DECIMAL(5, 3))  # Вес в кг
     category = Column(String(100))
     description = Column(Text)
     is_active = Column(Boolean, default=True)
@@ -79,7 +80,7 @@ class ProductionBatch(Base):
 
     # Плановые показатели
     expected_quantity = Column(Integer, nullable=False)
-    expected_weight_per_unit = Column(Decimal(5, 3))
+    expected_weight_per_unit = Column(DECIMAL(5, 3))
 
     # Фактические показатели
     actual_count = Column(Integer, default=0)
@@ -125,8 +126,8 @@ class TrainingSession(Base):
     detection_params = Column(Text)  # JSON с параметрами детекции
 
     # Результаты
-    model_accuracy = Column(Decimal(5, 4))
-    validation_score = Column(Decimal(5, 4))
+    model_accuracy = Column(DECIMAL(5, 4))
+    validation_score = Column(DECIMAL(5, 4))
 
     status = Column(String(50), default='created')  # created, annotating, training, completed, failed
 
@@ -968,6 +969,560 @@ def add_production_zone_routes(app, zone_manager):
         })
 
 
+# JavaScript код для интеграции в existing веб-интерфейс
+PRODUCTION_ZONE_INTERFACE_JS = '''
+// production_zone_interface.js - Интеграция производственной зонной разметки
+
+class ProductionZoneInterface {
+    constructor() {
+        this.zones = {
+            counting_zone: null,
+            entry_zone: null, 
+            exit_zone: null,
+            exclude_zones: []
+        };
+        this.currentTool = null;
+        this.currentZone = [];
+        this.isDrawing = false;
+        this.currentSession = null;
+        this.productionOrders = [];
+    }
+
+    initializeProductionZoneTools() {
+        // Добавляем производственные инструменты к existing интерфейсу
+        const controlPanel = document.querySelector('.control-panel') || 
+                           document.getElementById('control-panel');
+
+        if (controlPanel) {
+            const productionToolsHTML = `
+                <div class="production-tools" style="margin-top: 20px; padding: 15px; border: 2px solid #3498db; border-radius: 8px;">
+                    <h4>🏭 Производственная система:</h4>
+
+                    <!-- Выбор производственного задания -->
+                    <div class="production-selector" style="margin-bottom: 15px;">
+                        <label>📋 Производственное задание:</label>
+                        <select id="productionOrderSelect" style="width: 100%; padding: 8px; margin: 5px 0;">
+                            <option value="">Загрузка заданий...</option>
+                        </select>
+                        <button class="btn success" id="createProductionSession">🎬 Создать сессию</button>
+                    </div>
+
+                    <!-- Информация о продукте -->
+                    <div id="productionInfo" style="background: rgba(52, 73, 94, 0.8); padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                        <p>Выберите производственное задание</p>
+                    </div>
+
+                    <!-- Зонные инструменты -->
+                    <h5>🎯 Зонная разметка:</h5>
+                    <div class="zone-tools" style="display: grid; gap: 8px;">
+                        <button class="zone-btn" data-zone="counting_zone">🟢 Зона подсчета</button>
+                        <button class="zone-btn" data-zone="entry_zone">🔵 Зона входа</button>
+                        <button class="zone-btn" data-zone="exit_zone">🔴 Зона выхода</button>
+                        <button class="zone-btn" data-zone="exclude_zone">⚫ Исключение</button>
+                    </div>
+
+                    <!-- Управление зонами -->
+                    <div style="margin-top: 15px;">
+                        <button class="btn success" id="saveProductionZones">💾 Сохранить зоны</button>
+                        <button class="btn secondary" id="clearProductionZones">🗑️ Очистить</button>
+                        <button class="btn success" id="generateProductionDataset">🚀 Создать датасет</button>
+                    </div>
+
+                    <!-- Сессии обучения -->
+                    <div style="margin-top: 15px;">
+                        <h5>📈 Сессии обучения:</h5>
+                        <div id="productionSessionsList">
+                            <button class="btn secondary" id="loadProductionSessions">🔄 Загрузить сессии</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            controlPanel.insertAdjacentHTML('beforeend', productionToolsHTML);
+
+            this.bindProductionEvents();
+        }
+    }
+
+    bindProductionEvents() {
+        // Загрузка производственных заданий
+        this.loadProductionOrders();
+
+        // Привязываем события к кнопкам зон
+        document.querySelectorAll('.zone-btn[data-zone]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.selectZoneTool(e.target.dataset.zone);
+            });
+        });
+
+        // Производственные кнопки
+        document.getElementById('createProductionSession')?.addEventListener('click', () => this.createProductionSession());
+        document.getElementById('saveProductionZones')?.addEventListener('click', () => this.saveProductionZones());
+        document.getElementById('clearProductionZones')?.addEventListener('click', () => this.clearProductionZones());
+        document.getElementById('generateProductionDataset')?.addEventListener('click', () => this.generateProductionDataset());
+        document.getElementById('loadProductionSessions')?.addEventListener('click', () => this.loadProductionSessions());
+
+        // Выбор производственного задания
+        document.getElementById('productionOrderSelect')?.addEventListener('change', (e) => {
+            if (e.target.value) {
+                const selectedOrder = this.productionOrders.find(order => order.id == e.target.value);
+                this.updateProductionInfo(selectedOrder);
+            }
+        });
+
+        // Интеграция с existing canvas events
+        const canvas = document.getElementById('video-canvas') || 
+                      document.getElementById('drawingCanvas') || 
+                      document.querySelector('canvas');
+        if (canvas) {
+            canvas.addEventListener('click', (e) => this.handleCanvasClick(e));
+            canvas.addEventListener('dblclick', (e) => this.finishZone(e));
+        }
+
+        // ESC для отмены
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.cancelDrawing();
+            }
+        });
+    }
+
+    async loadProductionOrders() {
+        try {
+            const response = await fetch('/api/production/orders');
+            const data = await response.json();
+
+            if (data.success) {
+                this.productionOrders = data.orders;
+                this.updateProductionOrderSelect();
+            } else {
+                this.showStatus('Ошибка загрузки производственных заданий', 'error');
+            }
+        } catch (error) {
+            this.showStatus('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    updateProductionOrderSelect() {
+        const select = document.getElementById('productionOrderSelect');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">Выберите производственное задание</option>';
+
+        this.productionOrders.forEach(order => {
+            const option = document.createElement('option');
+            option.value = order.id;
+            option.textContent = `${order.order_number}: ${order.product_name} (${order.target_quantity} шт) - Печь ${order.oven_id}`;
+            select.appendChild(option);
+        });
+    }
+
+    updateProductionInfo(order) {
+        const infoDiv = document.getElementById('productionInfo');
+        if (!infoDiv || !order) return;
+
+        infoDiv.innerHTML = `
+            <h5>${order.product_name}</h5>
+            <p><strong>SKU:</strong> ${order.sku_code}</p>
+            <p><strong>Вес:</strong> ${order.weight} кг</p>
+            <p><strong>Количество:</strong> ${order.target_quantity} шт</p>
+            <p><strong>Печь:</strong> ${order.oven_id}</p>
+            <p><strong>Смена:</strong> ${order.shift_number} (${order.shift_date})</p>
+            <p><strong>Статус:</strong> <span style="color: ${this.getStatusColor(order.status)}">${order.status}</span></p>
+        `;
+    }
+
+    async createProductionSession() {
+        const orderSelect = document.getElementById('productionOrderSelect');
+        const selectedOrderId = orderSelect?.value;
+
+        if (!selectedOrderId) {
+            this.showStatus('Выберите производственное задание', 'warning');
+            return;
+        }
+
+        const sessionName = prompt('Название сессии обучения:', `Сессия_${new Date().toISOString().slice(0, 10)}`);
+        if (!sessionName) return;
+
+        // Проверяем что видео загружено
+        const videoFrame = document.getElementById('videoFrame') || document.querySelector('img');
+        if (!videoFrame || !videoFrame.src) {
+            this.showStatus('Сначала загрузите видео', 'warning');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/production/create_session', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    production_order_id: parseInt(selectedOrderId),
+                    session_name: sessionName,
+                    video_filename: 'current_video.mp4'
+                })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                this.currentSession = data.session_id;
+                this.showStatus(`Сессия "${sessionName}" создана`, 'success');
+                this.loadProductionSessions();
+            } else {
+                this.showStatus('Ошибка создания сессии: ' + data.error, 'error');
+            }
+        } catch (error) {
+            this.showStatus('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    selectZoneTool(zoneType) {
+        this.currentTool = zoneType;
+        this.currentZone = [];
+        this.isDrawing = false;
+
+        // Обновляем UI
+        document.querySelectorAll('.zone-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelector(`[data-zone="${zoneType}"]`)?.classList.add('active');
+
+        this.showStatus(`Рисование зоны: ${this.getZoneLabel(zoneType)}. Кликайте по углам.`, 'info');
+    }
+
+    handleCanvasClick(event) {
+        if (!this.currentTool) return;
+
+        const canvas = event.target;
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+
+        // Масштабируем координаты к размеру видео
+        const videoElement = document.getElementById('videoFrame') || document.querySelector('img');
+        if (!videoElement) return;
+
+        const scaleX = videoElement.naturalWidth / rect.width;
+        const scaleY = videoElement.naturalHeight / rect.height;
+
+        const imgX = Math.round(x * scaleX);
+        const imgY = Math.round(y * scaleY);
+
+        this.currentZone.push([imgX, imgY]);
+        this.isDrawing = true;
+
+        this.redrawZones();
+    }
+
+    finishZone(event) {
+        event.preventDefault();
+
+        if (!this.isDrawing || this.currentZone.length < 3) return;
+
+        if (this.currentTool === 'exclude_zone') {
+            this.zones.exclude_zones.push([...this.currentZone]);
+        } else {
+            this.zones[this.currentTool] = [...this.currentZone];
+        }
+
+        this.currentZone = [];
+        this.isDrawing = false;
+        this.currentTool = null;
+
+        document.querySelectorAll('.zone-btn').forEach(btn => btn.classList.remove('active'));
+
+        this.redrawZones();
+        this.showStatus('Зона сохранена', 'success');
+    }
+
+    cancelDrawing() {
+        this.currentZone = [];
+        this.isDrawing = false;
+        this.currentTool = null;
+
+        document.querySelectorAll('.zone-btn').forEach(btn => btn.classList.remove('active'));
+        this.redrawZones();
+        this.showStatus('Рисование отменено', 'info');
+    }
+
+    async saveProductionZones() {
+        if (!this.currentSession) {
+            this.showStatus('Сначала создайте сессию обучения', 'warning');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/production/save_zones', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({zones: this.zones})
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                this.showStatus('Зоны сохранены', 'success');
+            } else {
+                this.showStatus('Ошибка сохранения: ' + data.error, 'error');
+            }
+        } catch (error) {
+            this.showStatus('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    clearProductionZones() {
+        if (confirm('Удалить все зоны? Это действие нельзя отменить.')) {
+            this.zones = {
+                counting_zone: null,
+                entry_zone: null,
+                exit_zone: null,
+                exclude_zones: []
+            };
+            this.redrawZones();
+            this.showStatus('Все зоны очищены', 'info');
+        }
+    }
+
+    async generateProductionDataset() {
+        if (!this.currentSession) {
+            this.showStatus('Сначала создайте сессию обучения', 'warning');
+            return;
+        }
+
+        if (!this.zones.counting_zone) {
+            this.showStatus('Создайте сначала зону подсчета', 'warning');
+            return;
+        }
+
+        const framesCount = prompt('Количество кадров для генерации:', '200');
+        if (!framesCount) return;
+
+        this.showStatus('Генерация производственного датасета...', 'info');
+
+        try {
+            const response = await fetch('/api/production/generate_dataset', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({frames_count: parseInt(framesCount)})
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                this.showStatus(`Датасет создан: ${data.generated_frames} кадров, ${data.total_objects} объектов для ${data.product_name}`, 'success');
+            } else {
+                this.showStatus('Ошибка создания датасета: ' + data.error, 'error');
+            }
+        } catch (error) {
+            this.showStatus('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    async loadProductionSessions() {
+        try {
+            const response = await fetch('/api/production/sessions');
+            const data = await response.json();
+
+            if (data.success) {
+                this.updateProductionSessionsList(data.sessions);
+            } else {
+                this.showStatus('Ошибка загрузки сессий', 'error');
+            }
+        } catch (error) {
+            this.showStatus('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    updateProductionSessionsList(sessions) {
+        const container = document.getElementById('productionSessionsList');
+        if (!container) return;
+
+        if (sessions.length === 0) {
+            container.innerHTML = '<p>Нет созданных сессий</p><button class="btn secondary" onclick="window.productionZoneInterface.loadProductionSessions()">🔄 Обновить</button>';
+            return;
+        }
+
+        let html = '<div style="max-height: 200px; overflow-y: auto;">';
+        sessions.forEach(session => {
+            html += `
+                <div class="session-item" style="background: rgba(52, 73, 94, 0.8); padding: 10px; margin: 5px 0; border-radius: 5px; cursor: pointer;" onclick="window.productionZoneInterface.loadProductionSession(${session.id})">
+                    <strong>${session.session_name}</strong><br>
+                    <small>${session.product_name} (${session.sku_code})</small><br>
+                    <small>Кадров: ${session.frames_annotated} • Объектов: ${session.objects_detected}</small><br>
+                    <small>Статус: <span style="color: ${this.getStatusColor(session.status)}">${session.status}</span></small>
+                </div>
+            `;
+        });
+        html += '</div><button class="btn secondary" onclick="window.productionZoneInterface.loadProductionSessions()">🔄 Обновить</button>';
+
+        container.innerHTML = html;
+    }
+
+    async loadProductionSession(sessionId) {
+        try {
+            const response = await fetch('/api/production/load_session', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({session_id: sessionId})
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                this.currentSession = sessionId;
+                this.zones = data.zones || this.zones;
+                this.redrawZones();
+                this.showStatus(`Сессия "${data.session.name}" загружена`, 'success');
+            } else {
+                this.showStatus('Ошибка загрузки сессии: ' + data.error, 'error');
+            }
+        } catch (error) {
+            this.showStatus('Ошибка: ' + error.message, 'error');
+        }
+    }
+
+    redrawZones() {
+        // Интеграция с existing canvas rendering
+        const canvas = document.getElementById('video-canvas') || 
+                      document.getElementById('drawingCanvas') || 
+                      document.querySelector('canvas');
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+
+        // Очищаем canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Рисуем зоны
+        this.drawZonesOnCanvas(ctx, canvas);
+    }
+
+    drawZonesOnCanvas(ctx, canvas) {
+        const videoElement = document.getElementById('videoFrame') || document.querySelector('img');
+        if (!videoElement) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = rect.width / videoElement.naturalWidth;
+        const scaleY = rect.height / videoElement.naturalHeight;
+
+        const zoneColors = {
+            counting_zone: 'rgba(0, 255, 0, 0.3)',
+            entry_zone: 'rgba(255, 0, 0, 0.3)',
+            exit_zone: 'rgba(0, 0, 255, 0.3)',
+            exclude_zones: 'rgba(128, 128, 128, 0.3)'
+        };
+
+        // Рисуем зоны
+        Object.entries(zoneColors).forEach(([zoneName, color]) => {
+            if (zoneName === 'exclude_zones') {
+                this.zones.exclude_zones.forEach(zone => {
+                    this.drawZonePolygon(ctx, zone, color, scaleX, scaleY);
+                });
+            } else {
+                const zone = this.zones[zoneName];
+                if (zone) {
+                    this.drawZonePolygon(ctx, zone, color, scaleX, scaleY);
+                }
+            }
+        });
+
+        // Рисуем текущую зону в процессе создания
+        if (this.currentZone.length > 0) {
+            this.drawZonePolygon(ctx, this.currentZone, 'rgba(255, 255, 0, 0.5)', scaleX, scaleY);
+        }
+    }
+
+    drawZonePolygon(ctx, zone, color, scaleX, scaleY) {
+        if (!zone || zone.length < 2) return;
+
+        ctx.fillStyle = color;
+        ctx.strokeStyle = color.replace('0.3', '1.0');
+        ctx.lineWidth = 2;
+
+        ctx.beginPath();
+        const firstPoint = zone[0];
+        ctx.moveTo(firstPoint[0] * scaleX, firstPoint[1] * scaleY);
+
+        for (let i = 1; i < zone.length; i++) {
+            const point = zone[i];
+            ctx.lineTo(point[0] * scaleX, point[1] * scaleY);
+        }
+
+        if (zone.length > 2) {
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.stroke();
+
+        // Рисуем точки
+        ctx.fillStyle = color.replace('0.3', '1.0');
+        zone.forEach(point => {
+            ctx.beginPath();
+            ctx.arc(point[0] * scaleX, point[1] * scaleY, 4, 0, 2 * Math.PI);
+            ctx.fill();
+        });
+    }
+
+    getZoneLabel(zoneType) {
+        const labels = {
+            counting_zone: 'Зона подсчета',
+            entry_zone: 'Зона входа',
+            exit_zone: 'Зона выхода',
+            exclude_zone: 'Зона исключения'
+        };
+        return labels[zoneType] || zoneType;
+    }
+
+    getStatusColor(status) {
+        const colors = {
+            'planned': '#3498db',
+            'active': '#27ae60',
+            'created': '#3498db',
+            'annotating': '#f39c12', 
+            'training': '#e67e22',
+            'completed': '#27ae60',
+            'failed': '#e74c3c'
+        };
+        return colors[status] || '#95a5a6';
+    }
+
+    showStatus(message, type = 'info') {
+        // Интеграция с existing системой показа статусов
+        if (window.showStatus) {
+            window.showStatus(message, type);
+        } else {
+            console.log(`[${type.toUpperCase()}] ${message}`);
+
+            // Простое уведомление если нет existing системы
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed; top: 20px; right: 20px; z-index: 9999;
+                padding: 15px 20px; border-radius: 5px; color: white;
+                background: ${type === 'success' ? '#27ae60' : type === 'error' ? '#e74c3c' : type === 'warning' ? '#f39c12' : '#3498db'};
+            `;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 4000);
+        }
+    }
+}
+
+// Автоинициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof window.productionZoneInterface === 'undefined') {
+        window.productionZoneInterface = new ProductionZoneInterface();
+
+        // Ждем загрузки DOM и инициализируем через небольшую задержку
+        setTimeout(() => {
+            window.productionZoneInterface.initializeProductionZoneTools();
+        }, 1000);
+    }
+});
+
+// Обновляем размер canvas при изменении размера окна  
+window.addEventListener('resize', () => {
+    if (window.productionZoneInterface) {
+        window.productionZoneInterface.redrawZones();
+    }
+});
+'''
+
 if __name__ == '__main__':
     # Пример использования
     zone_manager = ProductionZoneManager()
@@ -986,8 +1541,10 @@ if __name__ == '__main__':
             f"   • {order['order_number']}: {order['product_name']} - {order['target_quantity']} шт (Печь {order['oven_id']})")
 
     print("\n🔧 Для интеграции с Flask app:")
-    print("   from production_zone_training import add_production_zone_routes, ProductionZoneManager")
+    print(
+        "   from production_zone_training import add_production_zone_routes, ProductionZoneManager, PRODUCTION_ZONE_INTERFACE_JS")
     print("   zone_manager = ProductionZoneManager()")
     print("   add_production_zone_routes(app, zone_manager)")
+    print("   # В HTML template добавьте: PRODUCTION_ZONE_INTERFACE_JS")
 
     zone_manager.close()
