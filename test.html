@@ -1,794 +1,3 @@
-# web/training_module_advanced.py
-"""Продвинутый обучающий модуль с чанковой загрузкой и управлением файлами"""
-
-from core.imports import *
-import cv2
-
-
-class AdvancedTrainingModule:
-    """Продвинутый модуль обучения с поддержкой больших файлов"""
-
-    def __init__(self):
-        self.app = Flask(__name__)
-        CORS(self.app)
-
-        # Конфигурация для больших файлов
-        self.app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024 * 1024  # 5GB
-        self.app.config['UPLOAD_FOLDER'] = 'uploads'
-        self.app.config['TEMP_FOLDER'] = 'temp_uploads'
-        self.app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
-
-        # Состояние загрузки
-        self.upload_sessions = {}
-
-        # Текущее состояние обучения
-        self.current_video = None
-        self.current_frame_index = 0
-        self.total_frames = 0
-        self.video_cap = None
-        self.current_zones = {
-            'entry_zone': None,
-            'counting_zone': None,
-            'exit_zone': None,
-            'gray_zones': []
-        }
-        self.detected_objects = []
-        self.training_data = []
-
-        # Создание директорий
-        for folder in ['uploads', 'temp_uploads', 'training_data']:
-            os.makedirs(folder, exist_ok=True)
-
-        self._setup_routes()
-
-    def _setup_routes(self):
-        """Настройка маршрутов"""
-
-        @self.app.route('/training')
-        def training_interface():
-            return render_template_string(self._get_training_template())
-
-        # === ЧАНКОВАЯ ЗАГРУЗКА ===
-
-        @self.app.route('/api/training/start_upload', methods=['POST'])
-        def start_chunked_upload():
-            """Начало чанковой загрузки"""
-            try:
-                data = request.get_json()
-                filename = secure_filename(data.get('filename', 'video.mp4'))
-                file_size = data.get('file_size', 0)
-
-                session_id = str(uuid.uuid4())
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                filename = f"{timestamp}_{filename}"
-
-                temp_path = os.path.join(self.app.config['TEMP_FOLDER'], f"{session_id}_{filename}")
-
-                self.upload_sessions[session_id] = {
-                    'filename': filename,
-                    'temp_path': temp_path,
-                    'file_size': file_size,
-                    'uploaded_size': 0,
-                    'start_time': time.time(),
-                    'status': 'uploading'
-                }
-
-                return jsonify({
-                    'success': True,
-                    'session_id': session_id,
-                    'message': 'Загрузка инициализирована'
-                })
-
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-
-        @self.app.route('/api/training/upload_chunk', methods=['POST'])
-        def upload_chunk():
-            """Загрузка чанка файла"""
-            try:
-                session_id = request.form.get('session_id')
-                chunk_index = int(request.form.get('chunk_index', 0))
-
-                if session_id not in self.upload_sessions:
-                    return jsonify({'error': 'Неверная сессия'}), 400
-
-                session = self.upload_sessions[session_id]
-
-                if 'chunk' not in request.files:
-                    return jsonify({'error': 'Нет данных чанка'}), 400
-
-                chunk_file = request.files['chunk']
-                chunk_data = chunk_file.read()
-
-                # Дописываем чанк к временному файлу
-                with open(session['temp_path'], 'ab') as f:
-                    f.write(chunk_data)
-
-                session['uploaded_size'] += len(chunk_data)
-                progress = (session['uploaded_size'] / session['file_size']) * 100 if session['file_size'] > 0 else 0
-
-                return jsonify({
-                    'success': True,
-                    'progress': progress,
-                    'uploaded_size': session['uploaded_size']
-                })
-
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-
-        @self.app.route('/api/training/finish_upload', methods=['POST'])
-        def finish_upload():
-            """Завершение загрузки"""
-            try:
-                data = request.get_json()
-                session_id = data.get('session_id')
-
-                if session_id not in self.upload_sessions:
-                    return jsonify({'error': 'Неверная сессия'}), 400
-
-                session = self.upload_sessions[session_id]
-
-                # Перемещаем файл в финальную папку
-                final_path = os.path.join(self.app.config['UPLOAD_FOLDER'], session['filename'])
-                os.rename(session['temp_path'], final_path)
-
-                # Проверяем что файл видео
-                if self._is_video_file(final_path):
-                    success = self._load_video(final_path)
-
-                    if success:
-                        session['status'] = 'completed'
-
-                        # Очищаем сессию через 5 минут
-                        threading.Timer(300, lambda: self.upload_sessions.pop(session_id, None)).start()
-
-                        return jsonify({
-                            'success': True,
-                            'message': f'Видео загружено: {self.total_frames} кадров',
-                            'filename': session['filename'],
-                            'total_frames': self.total_frames
-                        })
-                else:
-                    return jsonify({'error': 'Неподдерживаемый формат файла'}), 400
-
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-
-        # === УПРАВЛЕНИЕ ФАЙЛАМИ ===
-
-        @self.app.route('/api/training/files')
-        def list_files():
-            """Список загруженных файлов"""
-            try:
-                files = []
-                upload_dir = self.app.config['UPLOAD_FOLDER']
-
-                print(f"🔍 Сканирование папки: {upload_dir}")
-                print(f"   Папка существует: {os.path.exists(upload_dir)}")
-
-                if os.path.exists(upload_dir):
-                    all_files = os.listdir(upload_dir)
-                    print(f"   Всего файлов в папке: {len(all_files)}")
-
-                    for filename in all_files:
-                        filepath = os.path.join(upload_dir, filename)
-                        print(f"   Проверяем файл: {filename}")
-
-                        if os.path.isfile(filepath):
-                            # Проверяем расширение файла
-                            ext = os.path.splitext(filename)[1].lower()
-                            video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm', '.m4v']
-
-                            if ext in video_extensions:
-                                stat = os.stat(filepath)
-                                duration = self._get_video_duration(filepath)
-
-                                files.append({
-                                    'name': filename,
-                                    'size_bytes': stat.st_size,
-                                    'size_gb': round(stat.st_size / (1024 ** 3), 2),
-                                    'size_mb': round(stat.st_size / (1024 ** 2), 1),
-                                    'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                                    'duration': duration,
-                                    'extension': ext
-                                })
-                                print(f"     ✅ Добавлен видео файл: {filename}")
-                            else:
-                                print(f"     ⏭️  Пропускаем (не видео): {filename}")
-                        else:
-                            print(f"     ⏭️  Пропускаем (не файл): {filename}")
-                else:
-                    print(f"❌ Папка {upload_dir} не существует")
-                    os.makedirs(upload_dir, exist_ok=True)
-                    print(f"✅ Создана папка {upload_dir}")
-
-                files.sort(key=lambda x: x['modified'], reverse=True)
-                print(f"📊 Итого найдено видео файлов: {len(files)}")
-
-                return jsonify({'files': files})
-
-            except Exception as e:
-                print(f"❌ Ошибка сканирования файлов: {e}")
-                import traceback
-                traceback.print_exc()
-                return jsonify({'error': str(e)}), 500
-
-        @self.app.route('/api/training/files/<filename>/select', methods=['POST'])
-        def select_file(filename):
-            """Выбор файла для обучения"""
-            try:
-                filepath = os.path.join(self.app.config['UPLOAD_FOLDER'], secure_filename(filename))
-
-                if os.path.exists(filepath):
-                    success = self._load_video(filepath)
-                    if success:
-                        return jsonify({
-                            'success': True,
-                            'message': f'Видео загружено: {self.total_frames} кадров',
-                            'total_frames': self.total_frames,
-                            'filename': filename
-                        })
-                    else:
-                        return jsonify({'error': 'Ошибка загрузки видео'}), 500
-                else:
-                    return jsonify({'error': 'Файл не найден'}), 404
-
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-
-        @self.app.route('/api/training/files/<filename>', methods=['DELETE'])
-        def delete_file(filename):
-            """Удаление файла"""
-            try:
-                filepath = os.path.join(self.app.config['UPLOAD_FOLDER'], secure_filename(filename))
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-                    return jsonify({'success': True})
-                else:
-                    return jsonify({'error': 'Файл не найден'}), 404
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-
-        @self.app.route('/api/training/files/<filename>/rename', methods=['POST'])
-        def rename_file(filename):
-            """Переименование файла"""
-            try:
-                data = request.json
-                new_name = secure_filename(data.get('new_name', ''))
-
-                old_path = os.path.join(self.app.config['UPLOAD_FOLDER'], secure_filename(filename))
-                new_path = os.path.join(self.app.config['UPLOAD_FOLDER'], new_name)
-
-                if os.path.exists(old_path) and not os.path.exists(new_path):
-                    os.rename(old_path, new_path)
-                    return jsonify({'success': True, 'new_name': new_name})
-                else:
-                    return jsonify({'error': 'Ошибка переименования'}), 400
-
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-
-        # === РАБОТА С ВИДЕО И ОБУЧЕНИЕМ ===
-
-        @self.app.route('/api/training/zones/template', methods=['GET'])
-        def get_zone_templates():
-            """Получение шаблонов зон для разных типов печей"""
-            templates = {
-                'standard_oven': {
-                    'name': 'Стандартная печь',
-                    'zones': {
-                        'entry_zone': {
-                            'type': 'entry',
-                            'points': [
-                                {'x': 50, 'y': 50},
-                                {'x': 200, 'y': 50},
-                                {'x': 200, 'y': 150},
-                                {'x': 50, 'y': 150}
-                            ]
-                        },
-                        'counting_zone': {
-                            'type': 'counting',
-                            'points': [
-                                {'x': 250, 'y': 200},
-                                {'x': 900, 'y': 200},
-                                {'x': 900, 'y': 600},
-                                {'x': 250, 'y': 600}
-                            ]
-                        },
-                        'exit_zone': {
-                            'type': 'exit',
-                            'points': [
-                                {'x': 950, 'y': 400},
-                                {'x': 1100, 'y': 400},
-                                {'x': 1100, 'y': 500},
-                                {'x': 950, 'y': 500}
-                            ]
-                        },
-                        'gray_zones': []
-                    }
-                },
-                'conveyor_oven': {
-                    'name': 'Конвейерная печь',
-                    'zones': {
-                        'entry_zone': {
-                            'type': 'entry',
-                            'points': [
-                                {'x': 30, 'y': 100},
-                                {'x': 150, 'y': 100},
-                                {'x': 150, 'y': 200},
-                                {'x': 30, 'y': 200}
-                            ]
-                        },
-                        'counting_zone': {
-                            'type': 'counting',
-                            'points': [
-                                {'x': 200, 'y': 150},
-                                {'x': 1000, 'y': 150},
-                                {'x': 1000, 'y': 650},
-                                {'x': 200, 'y': 650}
-                            ]
-                        },
-                        'exit_zone': {
-                            'type': 'exit',
-                            'points': [
-                                {'x': 1050, 'y': 350},
-                                {'x': 1200, 'y': 350},
-                                {'x': 1200, 'y': 450},
-                                {'x': 1050, 'y': 450}
-                            ]
-                        },
-                        'gray_zones': []
-                    }
-                }
-            }
-
-            return jsonify({'templates': templates})
-
-
-        @self.app.route('/api/training/zones/save', methods=['POST'])
-        def save_zones_permanent():
-            """Постоянное сохранение зон для камеры/печи"""
-            try:
-                data = request.json
-                zones_data = data.get('zones', {})
-                camera_id = data.get('camera_id', 'default')
-                camera_name = data.get('camera_name', f'Камера {camera_id}')
-
-                # Создаем папку для зон если не существует
-                zones_dir = 'training_data/zones'
-                os.makedirs(zones_dir, exist_ok=True)
-
-                # Сохраняем зоны для конкретной камеры/печи
-                zones_file = os.path.join(zones_dir, f"camera_{camera_id}_zones.json")
-
-                zones_config = {
-                    'camera_id': camera_id,
-                    'camera_name': camera_name,
-                    'zones': zones_data,
-                    'created': datetime.now().isoformat() if not os.path.exists(zones_file) else None,
-                    'updated': datetime.now().isoformat()
-                }
-
-                # Если файл существует, сохраняем дату создания
-                if os.path.exists(zones_file):
-                    with open(zones_file, 'r', encoding='utf-8') as f:
-                        existing_config = json.load(f)
-                        zones_config['created'] = existing_config.get('created')
-
-                with open(zones_file, 'w', encoding='utf-8') as f:
-                    json.dump(zones_config, f, ensure_ascii=False, indent=2)
-
-                # Обновляем текущие зоны
-                self.current_zones = zones_data
-
-                print(f"💾 Зоны сохранены для камеры {camera_id}: {zones_file}")
-
-                return jsonify({
-                    'success': True,
-                    'message': f'Зоны сохранены для {camera_name}',
-                    'zones_file': zones_file,
-                    'camera_id': camera_id
-                })
-
-            except Exception as e:
-                print(f"❌ Ошибка сохранения зон: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
-
-        @self.app.route('/api/training/zones/load', methods=['POST'])
-        def load_zones_permanent():
-            """Загрузка сохраненных зон для камеры/печи"""
-            try:
-                data = request.json
-                camera_id = data.get('camera_id', 'default')
-
-                zones_file = f"training_data/zones/camera_{camera_id}_zones.json"
-
-                if os.path.exists(zones_file):
-                    with open(zones_file, 'r', encoding='utf-8') as f:
-                        zones_config = json.load(f)
-
-                    self.current_zones = zones_config.get('zones', {})
-
-                    print(f"📂 Зоны загружены для камеры {camera_id}: {zones_file}")
-
-                    return jsonify({
-                        'success': True,
-                        'zones': self.current_zones,
-                        'message': f'Зоны загружены для {zones_config.get("camera_name", f"камеры {camera_id}")}',
-                        'camera_id': camera_id,
-                        'camera_name': zones_config.get('camera_name')
-                    })
-                else:
-                    print(f"⚠️ Файл зон не найден для камеры {camera_id}: {zones_file}")
-                    return jsonify({
-                        'success': False,
-                        'message': f'Зоны для камеры {camera_id} не найдены',
-                        'zones': {},
-                        'camera_id': camera_id
-                    })
-
-            except Exception as e:
-                print(f"❌ Ошибка загрузки зон: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
-
-        @self.app.route('/api/training/detect_camera', methods=['POST'])
-        def detect_camera_from_video():
-            """Определение камеры по имени видео файла"""
-            try:
-                data = request.json
-                video_name = data.get('video_name', '')
-
-                # Пытаемся извлечь IP камеры из имени файла
-                # Примеры: "20250802_144412_CH32_20250720015826-20250720030517.mp4"
-                # или "camera_192.168.1.100_video.mp4"
-
-                camera_id = 'default'
-                camera_name = 'Неизвестная камера'
-
-                # Попытка 1: извлечь из имени файла шаблон CH{number}
-                import re
-                ch_match = re.search(r'CH(\d+)', video_name)
-                if ch_match:
-                    camera_id = f"ch{ch_match.group(1)}"
-                    camera_name = f"Канал {ch_match.group(1)}"
-                else:
-                    # Попытка 2: извлечь IP адрес
-                    ip_match = re.search(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', video_name)
-                    if ip_match:
-                        camera_id = ip_match.group(1).replace('.', '_')
-                        camera_name = f"Камера {ip_match.group(1)}"
-                    else:
-                        # Попытка 3: использовать первую часть имени файла
-                        base_name = video_name.split('_')[0] if '_' in video_name else video_name.split('.')[0]
-                        camera_id = base_name.lower()
-                        camera_name = f"Камера {base_name}"
-
-                print(f"🔍 Определена камера для видео '{video_name}': {camera_id} ({camera_name})")
-
-                return jsonify({
-                    'success': True,
-                    'camera_id': camera_id,
-                    'camera_name': camera_name,
-                    'video_name': video_name
-                })
-
-            except Exception as e:
-                print(f"❌ Ошибка определения камеры: {e}")
-                return jsonify({
-                    'success': False,
-                    'camera_id': 'default',
-                    'camera_name': 'Камера по умолчанию',
-                    'error': str(e)
-                })
-
-        @self.app.route('/api/training/frame/<int:frame_index>')
-        def get_frame(frame_index):
-            """Получение кадра видео"""
-            if self.video_cap is None:
-                return jsonify({'success': False, 'error': 'Видео не загружено'}), 400
-
-            try:
-                self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-                ret, frame = self.video_cap.read()
-
-                if ret:
-                    self.current_frame_index = frame_index
-                    _, buffer = cv2.imencode('.jpg', frame)
-                    image_base64 = base64.b64encode(buffer).decode('utf-8')
-
-                    return jsonify({
-                        'success': True,
-                        'frame_data': f"data:image/jpeg;base64,{image_base64}",
-                        'frame_index': frame_index,
-                        'total_frames': self.total_frames
-                    })
-                else:
-                    return jsonify({'success': False, 'error': 'Ошибка получения кадра'}), 500
-
-            except Exception as e:
-                print(f"❌ Ошибка получения кадра {frame_index}: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
-            """Получение шаблонов зон для разных типов печей"""
-            templates = {
-                'standard_oven': {
-                    'name': 'Стандартная печь',
-                    'zones': {
-                        'entry_zone': {
-                            'type': 'entry',
-                            'points': [
-                                {'x': 50, 'y': 50},
-                                {'x': 200, 'y': 50},
-                                {'x': 200, 'y': 150},
-                                {'x': 50, 'y': 150}
-                            ]
-                        },
-                        'counting_zone': {
-                            'type': 'counting',
-                            'points': [
-                                {'x': 250, 'y': 200},
-                                {'x': 900, 'y': 200},
-                                {'x': 900, 'y': 600},
-                                {'x': 250, 'y': 600}
-                            ]
-                        },
-                        'exit_zone': {
-                            'type': 'exit',
-                            'points': [
-                                {'x': 950, 'y': 400},
-                                {'x': 1100, 'y': 400},
-                                {'x': 1100, 'y': 500},
-                                {'x': 950, 'y': 500}
-                            ]
-                        },
-                        'gray_zones': []
-                    }
-                },
-                'conveyor_oven': {
-                    'name': 'Конвейерная печь',
-                    'zones': {
-                        'entry_zone': {
-                            'type': 'entry',
-                            'points': [
-                                {'x': 30, 'y': 100},
-                                {'x': 150, 'y': 100},
-                                {'x': 150, 'y': 200},
-                                {'x': 30, 'y': 200}
-                            ]
-                        },
-                        'counting_zone': {
-                            'type': 'counting',
-                            'points': [
-                                {'x': 200, 'y': 150},
-                                {'x': 1000, 'y': 150},
-                                {'x': 1000, 'y': 650},
-                                {'x': 200, 'y': 650}
-                            ]
-                        },
-                        'exit_zone': {
-                            'type': 'exit',
-                            'points': [
-                                {'x': 1050, 'y': 350},
-                                {'x': 1200, 'y': 350},
-                                {'x': 1200, 'y': 450},
-                                {'x': 1050, 'y': 450}
-                            ]
-                        },
-                        'gray_zones': []
-                    }
-                }
-            }
-
-            return jsonify({'templates': templates})
-
-        @self.app.route('/api/training/detect')
-        def detect_objects():
-            """Детекция объектов на текущем кадре"""
-            if self.video_cap is None:
-                return jsonify({'error': 'Видео не загружено'}), 400
-
-            try:
-                detected = self._detect_bread_objects()
-                return jsonify({
-                    'success': True,
-                    'objects': detected
-                })
-            except Exception as e:
-                return jsonify({'error': str(e)}), 500
-
-        @self.app.route('/api/training/save_annotation', methods=['POST'])
-        def save_annotation():
-            """Сохранение аннотации объекта"""
-            try:
-                data = request.json
-                print(f"🔄 Получен запрос на сохранение аннотации: {data.get('object_id')}")
-
-                annotation = {
-                    'object_id': data.get('object_id'),
-                    'bbox': data.get('bbox'),
-                    'frame_index': self.current_frame_index,
-                    'product_info': {
-                        'guid': data.get('guid', ''),
-                        'sku_code': data.get('sku_code', ''),
-                        'product_name': data.get('product_name', ''),
-                        'category': data.get('category', 'bread')
-                    },
-                    'zones': self.current_zones,
-                    'timestamp': datetime.now().isoformat(),
-                    'is_validated': data.get('is_validated', False)
-                }
-
-                self.training_data.append(annotation)
-
-                # Сохраняем в файл
-                success = self._save_training_data()
-
-                if success:
-                    print(f"✅ Аннотация сохранена: {len(self.training_data)} всего")
-                    return jsonify({
-                        'success': True,
-                        'annotation_id': len(self.training_data) - 1,
-                        'total_annotations': len(self.training_data)
-                    })
-                else:
-                    return jsonify({'success': False, 'error': 'Ошибка сохранения файла'}), 500
-
-            except Exception as e:
-                print(f"❌ Ошибка сохранения аннотации: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
-
-        @self.app.route('/api/training/data')
-        def get_training_data():
-            """Получение данных обучения"""
-            try:
-                return jsonify({
-                    'zones': self.current_zones,
-                    'training_data': self.training_data,
-                    'total_annotations': len(self.training_data),
-                    'current_video': os.path.basename(self.current_video) if self.current_video else None
-                })
-            except Exception as e:
-                print(f"❌ Ошибка получения данных обучения: {e}")
-                return jsonify({'error': str(e)}), 500
-
-    def _is_video_file(self, filepath):
-        """Проверка что файл является видео"""
-        video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm']
-        return os.path.splitext(filepath)[1].lower() in video_extensions
-
-    def _get_video_duration(self, filepath):
-        """Получение длительности видео"""
-        try:
-            cap = cv2.VideoCapture(filepath)
-            if cap.isOpened():
-                fps = cap.get(cv2.CAP_PROP_FPS)
-                frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-                duration = frame_count / fps if fps > 0 else 0
-                cap.release()
-                return round(duration, 1)
-        except:
-            pass
-        return 0
-
-    def _load_video(self, filepath):
-        """Загрузка видео файла"""
-        try:
-            if self.video_cap:
-                self.video_cap.release()
-
-            self.video_cap = cv2.VideoCapture(filepath)
-            if not self.video_cap.isOpened():
-                return False
-
-            self.total_frames = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            self.current_frame_index = 0
-            self.current_video = filepath
-
-            return True
-
-        except Exception as e:
-            print(f"Ошибка загрузки видео: {e}")
-            return False
-
-    def _detect_bread_objects(self):
-        """Детекция объектов хлеба на текущем кадре"""
-        if self.video_cap is None:
-            return []
-
-        try:
-            # Получаем текущий кадр
-            self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
-            ret, frame = self.video_cap.read()
-
-            if not ret:
-                return []
-
-            # Простая детекция по цвету (как в предыдущем коде)
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            lower_bread = np.array([8, 50, 50])
-            upper_bread = np.array([25, 255, 255])
-
-            mask = cv2.inRange(hsv, lower_bread, upper_bread)
-            kernel = np.ones((5, 5), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-            detected_objects = []
-
-            for i, contour in enumerate(contours):
-                area = cv2.contourArea(contour)
-
-                if 2000 < area < 25000:
-                    x, y, w, h = cv2.boundingRect(contour)
-                    aspect_ratio = w / h
-
-                    if 0.5 < aspect_ratio < 3.0:
-                        if self._is_in_counting_zone(x + w // 2, y + h // 2):
-                            detected_objects.append({
-                                'id': f"bread_{i}",
-                                'bbox': {'x': int(x), 'y': int(y), 'width': int(w), 'height': int(h)},
-                                'area': int(area),
-                                'confidence': 0.85,
-                                'center': {'x': int(x + w // 2), 'y': int(y + h // 2)}
-                            })
-
-            self.detected_objects = detected_objects
-            return detected_objects
-
-        except Exception as e:
-            print(f"Ошибка детекции: {e}")
-            return []
-
-    def _is_in_counting_zone(self, x, y):
-        """Проверка нахождения точки в зоне подсчета"""
-        counting_zone = self.current_zones.get('counting_zone')
-        if not counting_zone:
-            return True
-
-        if 'points' in counting_zone and len(counting_zone['points']) >= 4:
-            xs = [p['x'] for p in counting_zone['points']]
-            ys = [p['y'] for p in counting_zone['points']]
-            min_x, max_x = min(xs), max(xs)
-            min_y, max_y = min(ys), max(ys)
-
-            return min_x <= x <= max_x and min_y <= y <= max_y
-
-        return True
-
-    def _save_training_data(self):
-        """Сохранение данных обучения"""
-        try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"training_data/annotations_{timestamp}.json"
-
-            data_to_save = {
-                'video_file': os.path.basename(self.current_video) if self.current_video else None,
-                'total_frames': self.total_frames,
-                'current_frame_index': self.current_frame_index,
-                'zones': self.current_zones,
-                'annotations': self.training_data,
-                'created': datetime.now().isoformat(),
-                'total_objects': len(self.training_data)
-            }
-
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(data_to_save, f, ensure_ascii=False, indent=2)
-
-            print(f"💾 Данные обучения сохранены в {filename}")
-            print(f"   Аннотаций: {len(self.training_data)}")
-            print(
-                f"   Зон: {sum(1 for zone in self.current_zones.values() if zone and (not isinstance(zone, list) or len(zone) > 0))}")
-
-            return True
-
-        except Exception as e:
-            print(f"❌ Ошибка сохранения данных обучения: {e}")
-            return False
-
-    def _get_training_template(self):
-        """HTML шаблон продвинутого обучающего интерфейса"""
-        return '''
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -809,8 +18,8 @@ class AdvancedTrainingModule:
         }
 
         @media (max-width: 1200px) {
-            .main-grid { 
-                grid-template-columns: 1fr; 
+            .main-grid {
+                grid-template-columns: 1fr;
                 max-width: 100%;
             }
             .panel { margin-bottom: 1rem; }
@@ -818,22 +27,22 @@ class AdvancedTrainingModule:
         }
 
         @media (max-width: 800px) {
-            .zone-controls { 
-                display: flex; 
-                flex-wrap: wrap; 
-                gap: 0.3rem; 
+            .zone-controls {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.3rem;
             }
-            .zone-btn { 
-                padding: 0.5rem 0.8rem; 
-                font-size: 12px; 
+            .zone-btn {
+                padding: 0.5rem 0.8rem;
+                font-size: 12px;
                 margin: 0.1rem;
             }
         }
         .panel { background: white; border-radius: 8px; padding: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
         /* Загрузка файлов */
-        .upload-area { 
-            border: 2px dashed #cbd5e0; border-radius: 8px; padding: 1.5rem; text-align: center; 
+        .upload-area {
+            border: 2px dashed #cbd5e0; border-radius: 8px; padding: 1.5rem; text-align: center;
             margin-bottom: 1rem; cursor: pointer; transition: all 0.3s; min-height: 100px;
             display: flex; flex-direction: column; justify-content: center;
         }
@@ -848,8 +57,8 @@ class AdvancedTrainingModule:
 
         /* Список файлов */
         .file-list { max-height: 350px; overflow-y: auto; }
-        .file-item { 
-            background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px; 
+        .file-item {
+            background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px;
             padding: 0.6rem; margin-bottom: 0.4rem; cursor: pointer; transition: all 0.2s;
         }
         .file-item:hover { background: #edf2f7; border-color: #cbd5e0; }
@@ -860,23 +69,23 @@ class AdvancedTrainingModule:
         /* Видео панель */
         .video-panel { display: none; }
         .video-panel.active { display: block; }
-        .canvas-container { 
-            position: relative; max-width: 100%; overflow: auto; margin-bottom: 1rem; 
+        .canvas-container {
+            position: relative; max-width: 100%; overflow: auto; margin-bottom: 1rem;
             border: 1px solid #e2e8f0; border-radius: 6px;
         }
         .canvas-overlay { position: absolute; top: 0; left: 0; pointer-events: auto; }
 
         /* Контролы видео */
-        .video-controls { 
-            display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem; 
+        .video-controls {
+            display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem;
             padding: 0.75rem; background: #f7fafc; border-radius: 6px;
         }
         .frame-slider { flex: 1; }
 
         /* Зоны */
         .zone-controls { margin-bottom: 1rem; }
-        .zone-btn { 
-            padding: 0.5rem 1rem; margin: 0.25rem; border: none; border-radius: 4px; 
+        .zone-btn {
+            padding: 0.5rem 1rem; margin: 0.25rem; border: none; border-radius: 4px;
             cursor: pointer; font-size: 14px; transition: all 0.2s;
         }
         .zone-btn.active { transform: scale(1.05); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
@@ -887,34 +96,34 @@ class AdvancedTrainingModule:
 
         /* Объекты */
         .object-list { max-height: 300px; overflow-y: auto; }
-        .object-item { 
-            background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px; 
+        .object-item {
+            background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px;
             padding: 1rem; margin-bottom: 0.5rem; cursor: pointer; transition: all 0.2s;
         }
         .object-item:hover { background: #edf2f7; }
         .object-item.selected { border-color: #3182ce; background: #ebf8ff; }
-        .object-item.annotated { 
-            background: #f0fff4; 
-            border-color: #68d391; 
+        .object-item.annotated {
+            background: #f0fff4;
+            border-color: #68d391;
         }
-        .object-item.annotated:hover { 
-            background: #e6fffa; 
+        .object-item.annotated:hover {
+            background: #e6fffa;
         }
-        .object-item.pending { 
-            background: #fffaf0; 
-            border-color: #fbd38d; 
+        .object-item.pending {
+            background: #fffaf0;
+            border-color: #fbd38d;
         }
 
         /* Формы */
         .form-group { margin-bottom: 1rem; }
         .form-group label { display: block; margin-bottom: 0.25rem; font-weight: 500; }
-        .form-group input, .form-group select { 
-            width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px; 
+        .form-group input, .form-group select {
+            width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px;
         }
 
         /* Кнопки */
-        .btn { 
-            padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; 
+        .btn {
+            padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer;
             font-size: 14px; margin: 0.25rem; transition: all 0.2s;
         }
         .btn:hover { transform: translateY(-1px); }
@@ -997,7 +206,7 @@ class AdvancedTrainingModule:
 
                     <!-- Информация о камере -->
                     <div id="cameraInfo" style="background: #f0f4f8; padding: 0.5rem; border-radius: 4px; margin-bottom: 1rem; font-size: 12px; color: #2d3748; display: none;">
-                        <strong>📹 Камера:</strong> <span id="cameraName">Не определена</span> 
+                        <strong>📹 Камера:</strong> <span id="cameraName">Не определена</span>
                         <span style="color: #718096;">(<span id="cameraId">unknown</span>)</span>
                     </div>
 
@@ -1109,32 +318,32 @@ class AdvancedTrainingModule:
         let uploadArea, fileInput, progressContainer, progressBar, progressText, progressDetails;
         let fileList, videoPanel, frameSlider, frameInfo, videoCanvas, overlayCanvas;
         let ctx, overlayCtx;
-        
+
         // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
             console.log('🚀 Инициализация обучающего модуля');
-            
+
             // СНАЧАЛА инициализируем DOM элементы
             initializeDOMElements();
-            
+
             // ПОТОМ настраиваем обработчики (когда переменные уже имеют значения)
             setupEventListeners();
-            
+
             // Загружаем список файлов
             setTimeout(() => {
                 loadFileList();
             }, 500);
-            
+
             // Инициализируем счетчики
             updateZonesCount();
             updateAnnotatedCount();
-            
+
             console.log('🎉 Инициализация завершена');
         });
-        
+
         function initializeDOMElements() {
             console.log('🔄 Инициализация DOM элементов...');
-            
+
             // Присваиваем значения переменным ИЗ DOM
             uploadArea = document.getElementById('uploadArea');
             fileInput = document.getElementById('fileInput');
@@ -1148,7 +357,7 @@ class AdvancedTrainingModule:
             frameInfo = document.getElementById('frameInfo');
             videoCanvas = document.getElementById('videoCanvas');
             overlayCanvas = document.getElementById('overlayCanvas');
-        
+
             // Инициализируем контексты canvas
             if (videoCanvas && overlayCanvas) {
                 ctx = videoCanvas.getContext('2d');
@@ -1157,7 +366,7 @@ class AdvancedTrainingModule:
             } else {
                 console.error('❌ Canvas элементы не найдены');
             }
-            
+
             // Проверяем критические элементы
             const criticalElements = [
                 {name: 'uploadArea', element: uploadArea},
@@ -1165,7 +374,7 @@ class AdvancedTrainingModule:
                 {name: 'fileList', element: fileList},
                 {name: 'frameSlider', element: frameSlider}
             ];
-            
+
             criticalElements.forEach(({name, element}) => {
                 if (element) {
                     console.log(`✅ ${name} найден`);
@@ -1173,20 +382,20 @@ class AdvancedTrainingModule:
                     console.error(`❌ ${name} НЕ найден`);
                 }
             });
-            
+
             console.log('✅ DOM элементы инициализированы');
         }
-        
+
         function setupEventListeners() {
             console.log('🎧 Настройка обработчиков событий...');
-        
+
             // ТЕПЕРЬ переменные уже имеют значения, можно их проверять
             if (!uploadArea || !fileInput || !frameSlider) {
                 console.error('❌ Критические DOM элементы не найдены');
                 console.log('uploadArea:', !!uploadArea, 'fileInput:', !!fileInput, 'frameSlider:', !!frameSlider);
                 return;
             }
-        
+
             // Drag & Drop
             uploadArea.addEventListener('dragenter', handleDragEnter);
             uploadArea.addEventListener('dragover', handleDragOver);
@@ -1196,14 +405,14 @@ class AdvancedTrainingModule:
                 console.log('📁 Клик по области загрузки');
                 fileInput.click();
             });
-        
+
             fileInput.addEventListener('change', handleFileSelect);
-            
+
             // Слайдер кадров
             frameSlider.addEventListener('input', function() {
                 loadFrame(parseInt(this.value));
             });
-            
+
             console.log('✅ Обработчики событий настроены');
         }
 
@@ -1294,7 +503,7 @@ class AdvancedTrainingModule:
                     const progress = chunkData.progress;
                     progressBar.style.width = progress + '%';
                     progressText.textContent = progress.toFixed(1) + '%';
-                    progressDetails.textContent = 
+                    progressDetails.textContent =
                         `Загружено ${(chunkData.uploaded_size / 1024 / 1024).toFixed(1)} MB из ${(file.size / 1024 / 1024).toFixed(1)} MB`;
 
                     await new Promise(resolve => setTimeout(resolve, 10));
@@ -1382,8 +591,8 @@ class AdvancedTrainingModule:
             }
 
             fileList.innerHTML = files.map((file, index) => {
-                const sizeText = file.size_gb > 1 ? 
-                    `${file.size_gb} GB` : 
+                const sizeText = file.size_gb > 1 ?
+                    `${file.size_gb} GB` :
                     `${file.size_mb} MB`;
 
                 const dateText = new Date(file.modified).toLocaleDateString('ru-RU');
@@ -1401,7 +610,7 @@ class AdvancedTrainingModule:
                                 📂 Открыть
                             </button>
                             <button class="btn btn-sm btn-warning" onclick="event.stopPropagation(); renameFile('${file.name}')">
-                                ✏️ 
+                                ✏️
                             </button>
                             <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteFile('${file.name}')">
                                 🗑️
@@ -1828,7 +1037,7 @@ class AdvancedTrainingModule:
         function getZoneColor(zoneType) {
             const colors = {
                 'entry': '#38a169',
-                'counting': '#d69e2e', 
+                'counting': '#d69e2e',
                 'exit': '#e53e3e',
                 'gray': '#718096'
             };
@@ -2064,7 +1273,7 @@ class AdvancedTrainingModule:
                         Позиция: ${obj.bbox.x}, ${obj.bbox.y}<br>
                         Размер: ${obj.bbox.width}×${obj.bbox.height}<br>
                         Уверенность: ${(obj.confidence * 100).toFixed(1)}%
-                        ${obj.annotated && obj.annotation_data ? 
+                        ${obj.annotated && obj.annotation_data ?
                             `<br><strong>SKU:</strong> ${obj.annotation_data.sku_code}<br><strong>Продукт:</strong> ${obj.annotation_data.product_name}` : ''
                         }
                     </div>
@@ -2147,7 +1356,7 @@ class AdvancedTrainingModule:
             // Устанавливаем цвет в зависимости от типа
             const colors = {
                 'success': '#38a169',
-                'error': '#e53e3e', 
+                'error': '#e53e3e',
                 'warning': '#d69e2e',
                 'info': '#3182ce'
             };
@@ -2258,13 +1467,3 @@ class AdvancedTrainingModule:
     </script>
 </body>
 </html>
-        '''
-
-    def run(self, host='0.0.0.0', port=5001, debug=False):
-        """Запуск модуля"""
-        self.app.run(host=host, port=port, debug=debug)
-
-
-if __name__ == '__main__':
-    module = AdvancedTrainingModule()
-    module.run(debug=True)
