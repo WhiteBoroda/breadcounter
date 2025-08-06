@@ -1,0 +1,695 @@
+/* web/static/css/training.css */
+
+/* Общие стили */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #f5f5f5;
+}
+
+.header {
+    background: #2d3748;
+    color: white;
+    padding: 1rem;
+}
+
+.container {
+    max-width: 1600px;
+    margin: 1rem auto;
+    padding: 0 1rem;
+}
+
+.main-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr 320px;
+    gap: 1rem;
+}
+
+/* Адаптивность */
+@media (max-width: 1400px) {
+    .main-grid {
+        grid-template-columns: 240px 1fr 280px;
+        gap: 0.8rem;
+    }
+    .container {
+        padding: 0 0.5rem;
+    }
+}
+
+@media (max-width: 1200px) {
+    .main-grid {
+        grid-template-columns: 1fr;
+        max-width: 100%;
+    }
+    .panel {
+        margin-bottom: 1rem;
+    }
+    .video-controls {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+}
+
+@media (max-width: 800px) {
+    .zone-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+    }
+    .zone-btn {
+        padding: 0.5rem 0.8rem;
+        font-size: 12px;
+        margin: 0.1rem;
+    }
+}
+
+.panel {
+    background: white;
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Загрузка файлов */
+.upload-area {
+    border: 2px dashed #cbd5e0;
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+    margin-bottom: 1rem;
+    cursor: pointer;
+    transition: all 0.3s;
+    min-height: 100px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.upload-area:hover {
+    border-color: #3182ce;
+    background: #f7fafc;
+}
+
+.upload-area.uploading {
+    border-color: #d69e2e;
+    background: #fffaf0;
+}
+
+/* Прогресс загрузки */
+.progress-container {
+    display: none;
+    margin: 1rem 0;
+}
+
+.progress {
+    width: 100%;
+    height: 16px;
+    background: #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background: #3182ce;
+    transition: width 0.3s;
+}
+
+.progress-text {
+    text-align: center;
+    margin-top: 0.5rem;
+    font-size: 12px;
+}
+
+/* Список файлов */
+.file-list {
+    max-height: 350px;
+    overflow-y: auto;
+}
+
+.file-item {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 0.6rem;
+    margin-bottom: 0.4rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.file-item:hover {
+    background: #edf2f7;
+    border-color: #cbd5e0;
+}
+
+.file-item.selected {
+    background: #ebf8ff;
+    border-color: #3182ce;
+}
+
+.file-info {
+    font-size: 11px;
+    color: #718096;
+    margin-top: 0.25rem;
+}
+
+.file-controls {
+    margin-top: 0.4rem;
+    display: flex;
+    gap: 0.2rem;
+}
+
+/* Видео панель */
+.video-panel {
+    display: none;
+}
+
+.video-panel.active {
+    display: block;
+}
+
+.canvas-container {
+    position: relative;
+    max-width: 100%;
+    overflow: auto;
+    margin-bottom: 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+}
+
+.canvas-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: auto;
+}
+
+/* Контролы видео */
+.video-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: #f7fafc;
+    border-radius: 6px;
+}
+
+.frame-slider {
+    flex: 1;
+}
+
+/* Информация о камере */
+.camera-info {
+    background: #f0f4f8;
+    padding: 0.5rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    font-size: 12px;
+    color: #2d3748;
+}
+
+/* Зоны */
+.zone-controls {
+    margin-bottom: 1rem;
+}
+
+.zone-header {
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+    color: #2d3748;
+}
+
+.zone-templates {
+    margin-bottom: 0.75rem;
+    padding: 0.5rem;
+    background: #edf2f7;
+    border-radius: 4px;
+}
+
+.templates-label {
+    font-size: 12px;
+    color: #4a5568;
+    margin-bottom: 0.25rem;
+}
+
+.zone-buttons {
+    margin-bottom: 0.75rem;
+}
+
+.zone-btn {
+    padding: 0.5rem 1rem;
+    margin: 0.25rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.zone-btn.active {
+    transform: scale(1.05);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.zone-btn.entry {
+    background: #38a169;
+    color: white;
+}
+
+.zone-btn.counting {
+    background: #d69e2e;
+    color: white;
+}
+
+.zone-btn.exit {
+    background: #e53e3e;
+    color: white;
+}
+
+.zone-btn.gray {
+    background: #718096;
+    color: white;
+}
+
+/* Объекты */
+.object-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.object-item {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.object-item:hover {
+    background: #edf2f7;
+}
+
+.object-item.selected {
+    border-color: #3182ce;
+    background: #ebf8ff;
+}
+
+.object-item.annotated {
+    background: #f0fff4;
+    border-color: #68d391;
+}
+
+.object-item.annotated:hover {
+    background: #e6fffa;
+}
+
+.object-item.pending {
+    background: #fffaf0;
+    border-color: #fbd38d;
+}
+
+/* Новые классы для пакетного режима */
+.object-item.template {
+    background: #ebf8ff;
+    border-color: #3182ce;
+}
+
+.object-item.template:hover {
+    background: #dbeafe;
+}
+
+.object-item.good {
+    background: #f0fff4;
+    border-color: #38a169;
+}
+
+.object-item.good:hover {
+    background: #e6fffa;
+}
+
+.object-item.defect {
+    background: #fed7d7;
+    border-color: #e53e3e;
+}
+
+.object-item.defect:hover {
+    background: #fecaca;
+}
+
+.object-item.anomaly {
+    background: #fffaf0;
+    border-color: #d69e2e;
+}
+
+.object-item.anomaly:hover {
+    background: #fef3c7;
+}
+
+.object-item.unknown {
+    background: #f7fafc;
+    border-color: #718096;
+}
+
+/* Формы */
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+}
+
+.form-group input, .form-group select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+}
+
+/* Кнопки */
+.btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin: 0.25rem;
+    transition: all 0.2s;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 12px;
+}
+
+.btn-primary {
+    background: #3182ce;
+    color: white;
+}
+
+.btn-success {
+    background: #38a169;
+    color: white;
+}
+
+.btn-danger {
+    background: #e53e3e;
+    color: white;
+}
+
+.btn-secondary {
+    background: #718096;
+    color: white;
+}
+
+.btn-warning {
+    background: #d69e2e;
+    color: white;
+}
+
+/* Статистика */
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.stat-item {
+    background: #f7fafc;
+    padding: 0.75rem;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #2b6cb0;
+}
+
+.stat-label {
+    font-size: 12px;
+    color: #718096;
+}
+
+/* Переключение режимов */
+.mode-toggle {
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+/* Пакетное обучение */
+.batch-section {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.batch-section h4 {
+    margin: 0 0 0.75rem 0;
+    color: #2d3748;
+    font-size: 14px;
+}
+
+.batch-info-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+    font-size: 12px;
+}
+
+.info-item {
+    display: flex;
+    justify-content: space-between;
+}
+
+        /* Статус */
+.status {
+    padding: 0.75rem;
+    border-radius: 6px;
+    margin: 0.5rem 0;
+}
+.status.success {
+    background: #c6f6d5;
+    color: #22543d;
+    border-left: 4px solid #38a169;
+}
+.status.error {
+    background: #fed7d7;
+    color: #742a2a;
+    border-left: 4px solid #e53e3e;
+}
+.status.info {
+    background: #bee3f8;
+    color: #2a4365;
+    border-left: 4px solid #3182ce;
+}
+.status.warning {
+    background: #fefcbf;
+    color: #744210;
+    border-left: 4px solid #d69e2e;
+}
+/* Статистика */
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    font-size: 12px;
+}
+.stat-item {
+    background: #f7fafc;
+    padding: 0.75rem;
+    border-radius: 6px;
+    text-align: center;
+}
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #2b6cb0;
+}
+.stat-label {
+    font-size: 12px;
+    color: #718096;
+}
+
+.status-badge {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+.status-created {
+    background: #bee3f8;
+    color: #2a4365;
+}
+
+.status-template_ready {
+    background: #c6f6d5;
+    color: #22543d;
+}
+
+.status-auto_training {
+    background: #fefcbf;
+    color: #744210;
+}
+
+.status-stopped_anomaly {
+    background: #fed7d7;
+    color: #742a2a;
+}
+
+.template-description {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 0.5rem;
+}
+
+.template-objects-list {
+    max-height: 120px;
+    overflow-y: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 0.5rem;
+    background: white;
+    font-size: 11px;
+}
+
+.template-object-item {
+    background: #ebf8ff;
+    border: 1px solid #3182ce;
+    border-radius: 3px;
+    padding: 0.25rem 0.5rem;
+    margin-bottom: 0.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.template-actions {
+    margin-top: 0.5rem;
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 12px;
+}
+
+.settings-row input[type="range"] {
+    flex: 1;
+}
+
+.training-controls {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 0.75rem;
+}
+
+.training-controls .btn {
+    flex: 1;
+    font-size: 11px;
+    padding: 0.4rem 0.6rem;
+}
+
+.training-progress {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    font-size: 11px;
+}
+
+.progress-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    background: #f7fafc;
+}
+
+.progress-item.good {
+    background: #f0fff4;
+    color: #22543d;
+}
+
+.progress-item.defect {
+    background: #fed7d7;
+    color: #742a2a;
+}
+
+.progress-item.anomaly {
+    background: #fefcbf;
+    color: #744210;
+}
+
+.anomaly-queue {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.anomaly-item {
+    background: #fffaf0;
+    border: 1px solid #fbd38d;
+    border-radius: 4px;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 11px;
+}
+
+.anomaly-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.anomaly-item-id {
+    font-weight: bold;
+    color: #744210;
+}
+
+.anomaly-item-similarity {
+    font-size: 10px;
+    color: #666;
+}
+
+.anomaly-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+}
+
+.anomaly-actions .btn {
+    font-size: 10px;
+    padding: 0.2rem 0.4rem;
+}
+
+.defect-category-select {
+    width: 100%;
+    font-size: 10px;
+    padding: 0.2rem;
+    margin: 0.25rem 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 3px;
+}

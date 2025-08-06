@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧠 Обучение системы распознавания</title>
+    
+    <!-- Подключаем CSS файлы -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/training.css') }}">
+</head>
+<body>
+    <div class="header">
+        <h1>🧠 Обучение системы распознавания хлеба</h1>
+        <a href="/" style="color: #cbd5e0; text-decoration: none;">← Вернуться на главную</a>
+    </div>
+
+    <div class="container">
+        <div class="main-grid">
+            <!-- Левая панель - управление файлами -->
+            <div class="panel">
+                <h3>📁 Управление файлами</h3>
+
+                <!-- Загрузка -->
+                <div class="upload-area" id="uploadArea">
+                    <p>📤 Перетащите видео сюда или кликните для выбора</p>
+                    <input type="file" id="fileInput" accept="video/*" style="display: none;">
+                </div>
+
+                <!-- Прогресс загрузки -->
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                    <div class="progress-text" id="progressText">0%</div>
+                    <div class="progress-text" id="progressDetails"></div>
+                </div>
+
+                <!-- Список файлов -->
+                <div class="file-list" id="fileList"></div>
+
+                <!-- Статистика -->
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalFiles">0</div>
+                        <div class="stat-label">Файлов</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalSize">0</div>
+                        <div class="stat-label">GB</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Центральная панель - видео -->
+            <div class="panel">
+                <div id="videoPanel" class="video-panel">
+                    <h3>🎬 Работа с видео</h3>
+
+                    <!-- Контролы видео -->
+                    <div class="video-controls">
+                        <button class="btn btn-secondary" onclick="previousFrame()">⏮️</button>
+                        <input type="range" id="frameSlider" class="frame-slider" min="0" max="100" value="0">
+                        <button class="btn btn-secondary" onclick="nextFrame()">⏭️</button>
+                        <span id="frameInfo">0 / 0</span>
+                    </div>
+
+                    <!-- Информация о камере -->
+                    <div id="cameraInfo" class="camera-info" style="display: none;">
+                        <strong>📹 Камера:</strong> <span id="cameraName">Не определена</span> 
+                        <span style="color: #718096;">(<span id="cameraId">unknown</span>)</span>
+                    </div>
+
+                    <!-- Зоны -->
+                    <div class="zone-controls">
+                        <div class="zone-header">🎯 Разметка зон детекции</div>
+
+                        <!-- Шаблоны зон -->
+                        <div class="zone-templates">
+                            <div class="templates-label">📋 Шаблоны зон:</div>
+                            <button class="btn btn-sm btn-secondary" onclick="loadZoneTemplate('standard_oven')">🏭 Стандартная печь</button>
+                            <button class="btn btn-sm btn-secondary" onclick="loadZoneTemplate('conveyor_oven')">🏗️ Конвейерная</button>
+                        </div>
+
+                        <!-- Кнопки создания зон -->
+                        <div class="zone-buttons">
+                            <button class="zone-btn entry" onclick="setZoneMode('entry')">🟢 Вход</button>
+                            <button class="zone-btn counting" onclick="setZoneMode('counting')">🟡 Подсчет</button>
+                            <button class="zone-btn exit" onclick="setZoneMode('exit')">🔴 Выход</button>
+                            <button class="zone-btn gray" onclick="setZoneMode('gray')">⚫ Серая</button>
+                        </div>
+
+                        <!-- Управление зонами -->
+                        <div class="zone-actions">
+                            <button class="btn btn-primary" onclick="saveZones()">💾 Сохранить зоны</button>
+                            <button class="btn btn-primary" onclick="detectObjects()">🔍 Найти объекты</button>
+                            <button class="btn btn-danger" onclick="clearZones()">🗑️ Очистить</button>
+                        </div>
+                    </div>
+
+                    <!-- Canvas для видео -->
+                    <div class="canvas-container">
+                        <canvas id="videoCanvas"></canvas>
+                        <canvas id="overlayCanvas" class="canvas-overlay"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Правая панель - объекты и аннотации -->
+            <div class="panel">
+                <!-- Кнопка переключения режимов -->
+                <div class="mode-toggle">
+                    <button class="btn btn-primary" id="modeToggleBtn" onclick="toggleTrainingMode()">
+                        🏭 Пакетный режим
+                    </button>
+                </div>
+
+                <!-- Обычные объекты -->
+                <div id="regularObjectsSection">
+                    <h3>📋 Обнаруженные объекты</h3>
+                    <div id="objectsList" class="object-list"></div>
+
+                    <!-- Форма аннотации -->
+                    <div id="annotationForm" class="annotation-form" style="display: none;">
+                        <h3>📝 Описание продукта</h3>
+                        <div class="form-group">
+                            <label>GUID:</label>
+                            <input type="text" id="productGuid" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>Код SKU:</label>
+                            <input type="text" id="productSku" placeholder="Введите SKU">
+                        </div>
+                        <div class="form-group">
+                            <label>Наименование:</label>
+                            <input type="text" id="productName" placeholder="Название продукта">
+                        </div>
+                        <div class="form-group">
+                            <label>Категория:</label>
+                            <select id="productCategory">
+                                <option value="bread">Хлеб</option>
+                                <option value="bun">Булочки</option>
+                                <option value="loaf">Батон</option>
+                                <option value="pastry">Выпечка</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-success" onclick="saveAnnotation()">💾 Сохранить</button>
+                        <button class="btn btn-secondary" onclick="cancelAnnotation()">❌ Отмена</button>
+                    </div>
+
+                    <!-- Статистика обучения -->
+                    <div class="training-stats">
+                        <h3>📊 Статистика</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <div class="stat-value" id="annotatedCount">0</div>
+                                <div class="stat-label">Аннотаций</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="zonesCount">0</div>
+                                <div class="stat-label">Зон</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Пакетное обучение -->
+                <div id="batchTrainingPanel" style="display: none;">
+                    <h3>🏭 Пакетное обучение</h3>
+                    
+                    <!-- Создание партии -->
+                    <div id="batchCreationForm" class="batch-section">
+                        <h4>📦 Создание партии</h4>
+                        <div class="form-group">
+                            <label>Название продукта:</label>
+                            <input type="text" id="batchProductName" placeholder="Хлеб белый формовой">
+                        </div>
+                        <div class="form-group">
+                            <label>SKU код:</label>
+                            <input type="text" id="batchSku" placeholder="BREAD_001">
+                        </div>
+                        <div class="form-group">
+                            <label>Категория:</label>
+                            <select id="batchCategory">
+                                <option value="bread">Хлеб</option>
+                                <option value="bun">Булочки</option>
+                                <option value="loaf">Батон</option>
+                                <option value="pastry">Выпечка</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Ожидаемое количество:</label>
+                            <input type="number" id="batchSize" value="1500" min="100" max="5000">
+                        </div>
+                        <div class="form-group">
+                            <label>Оператор:</label>
+                            <input type="text" id="batchOperator" placeholder="Иванов И.И.">
+                        </div>
+                        <button class="btn btn-success" onclick="createBatch()">🆕 Создать партию</button>
+                    </div>
+                    
+                    <!-- Информация о текущей партии -->
+                    <div id="currentBatchInfo" class="batch-section" style="display: none;">
+                        <h4>📊 Текущая партия</h4>
+                        <div class="batch-info-grid">
+                            <div class="info-item">
+                                <strong>ID:</strong> <span id="batchId">-</span>
+                            </div>
+                            <div class="info-item">
+                                <strong>Продукт:</strong> <span id="batchProduct">-</span>
+                            </div>
+                            <div class="info-item">
+                                <strong>Статус:</strong> <span id="batchStatus" class="status-badge">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Установка эталона -->
+                    <div id="templateSection" class="batch-section" style="display: none;">
+                        <h4>🎯 Установка эталона</h4>
+                        <p class="template-description">
+                            Выберите 2-3 хороших объекта как эталон для партии
+                        </p>
+                        <div id="selectedTemplateObjects" class="template-objects-list"></div>
+                        <div class="template-actions">
+                            <button class="btn btn-primary" onclick="setTemplate()">✅ Установить эталон</button>
+                            <button class="btn btn-secondary" onclick="clearTemplate()">🗑️ Очистить</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Автообучение -->
+                    <div id="autoTrainingSection" class="batch-section" style="display: none;">
+                        <h4>🤖 Автоматическое обучение</h4>
+                        
+                        <!-- Настройки -->
+                        <div class="settings-row">
+                            <label>Порог схожести:</label>
+                            <input type="range" id="similarityThreshold" min="0.5" max="1.0" step="0.05" value="0.8">
+                            <span id="thresholdValue">0.8</span>
+                        </div>
+                        
+                        <!-- Контролы -->
+                        <div class="training-controls">
+                            <button class="btn btn-success" id="startAutoBtn" onclick="startAutoTraining()">▶️ Запустить</button>
+                            <button class="btn btn-danger" id="stopAutoBtn" onclick="stopAutoTraining()" style="display: none;">⏹️ Остановить</button>
+                            <button class="btn btn-warning" onclick="processCurrentFrame()">🔄 Обработать кадр</button>
+                        </div>
+                        
+                        <!-- Прогресс -->
+                        <div id="trainingProgress" class="training-progress" style="display: none;">
+                            <div class="progress-item">
+                                <span>Обработано:</span>
+                                <span id="processedCount">0</span>
+                            </div>
+                            <div class="progress-item good">
+                                <span>Хороших:</span>
+                                <span id="goodCount">0</span>
+                            </div>
+                            <div class="progress-item defect">
+                                <span>Брак:</span>
+                                <span id="defectCount">0</span>
+                            </div>
+                            <div class="progress-item anomaly">
+                                <span>Аномалии:</span>
+                                <span id="anomalyCount">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Очередь аномалий -->
+                    <div id="anomalyQueueSection" class="batch-section" style="display: none;">
+                        <h4>⚠️ Аномалии (<span id="anomalyQueueCount">0</span>)</h4>
+                        <div id="anomalyQueue" class="anomaly-queue"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Подключаем JavaScript файлы -->
+    <script src="{{ url_for('static', filename='js/training.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/batch_training.js') }}"></script>
+</body>
+</html>

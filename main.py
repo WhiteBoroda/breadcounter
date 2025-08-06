@@ -118,7 +118,7 @@ def main():
     # Проверка требований
     if not check_requirements():
         print("❌ Не удалось запустить систему")
-        return 1
+        sys.exit(1)
 
     # Создание директорий и конфигурации
     create_directories()
@@ -168,5 +168,9 @@ def main():
 
 
 if __name__ == '__main__':
-    exit_code = main()
-    sys.exit(exit_code)
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n👋 Приложение остановлено пользователем.")
+        exit_code = main()
+        sys.exit(exit_code)
