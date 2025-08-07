@@ -50,12 +50,18 @@ function toggleTrainingMode() {
 function handleBatchModeObjectSelection(index) {
     const obj = detectedObjects[index];
 
+    if (!obj) {
+        showStatus('Объект не найден', 'error');
+        return;
+    }
+
     if (currentBatch && !autoTrainingActive) {
-        // Если партия создана, но автообучение не запущено - добавляем к эталону
+        // Добавляем к эталону
         addToTemplate(index);
     } else if (autoTrainingActive) {
-        // Если автообучение активно - показываем результат классификации
         showObjectClassification(obj);
+    } else {
+        showStatus('Сначала создайте партию', 'warning');
     }
 }
 
@@ -109,20 +115,31 @@ function createBatch() {
 // === РАБОТА С ЭТАЛОНОМ ===
 
 function addToTemplate(objectIndex) {
-    const obj = detectedObjects[objectIndex];
-    if (!obj || templateObjects.find(t => t.id === obj.id)) {
-        return; // Уже добавлен
+    if (objectIndex < 0 || objectIndex >= detectedObjects.length) {
+        showStatus('Неверный индекс объекта', 'error');
+        return;
     }
 
-    templateObjects.push(obj);
+    const obj = detectedObjects[objectIndex];
+
+    if (templateObjects.find(t => t.id === obj.id)) {
+        showStatus(`Объект ${obj.id} уже в эталоне`, 'warning');
+        return;
+    }
+
+    // Создаем копию объекта для эталона
+    const templateObj = {
+        id: obj.id,
+        bbox: {...obj.bbox},
+        center: {...obj.center},
+        confidence: obj.confidence,
+        area: obj.area || (obj.bbox.width * obj.bbox.height)
+    };
+
+    templateObjects.push(templateObj);
     renderTemplateObjects();
 
-    // Перерисовываем с выделением эталонных объектов
-    if (typeof redrawOverlay === 'function') {
-        redrawOverlay();
-    }
-
-    showStatus(`Объект ${obj.id} добавлен к эталону`, 'success');
+    showStatus(`Объект ${obj.id} добавлен к эталону (${templateObjects.length})`, 'success');
 }
 
 function renderTemplateObjects() {

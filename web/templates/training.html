@@ -55,7 +55,11 @@
             <div class="panel">
                 <div id="videoPanel" class="video-panel">
                     <h3>🎬 Работа с видео</h3>
-
+                    <div class="panel-controls">
+                        <button class="btn btn-sm btn-secondary" onclick="toggleRightPanel()" id="togglePanelBtn">
+                            ◀ Скрыть панель
+                        </button>
+                    </div>
                     <!-- Контролы видео -->
                     <div class="video-controls">
                         <button class="btn btn-secondary" onclick="previousFrame()">⏮️</button>
@@ -74,12 +78,12 @@
                     <div class="zone-controls">
                         <div class="zone-header">🎯 Разметка зон детекции</div>
 
-                        <!-- Шаблоны зон -->
+                        <!-- Шаблоны зон
                         <div class="zone-templates">
                             <div class="templates-label">📋 Шаблоны зон:</div>
                             <button class="btn btn-sm btn-secondary" onclick="loadZoneTemplate('standard_oven')">🏭 Стандартная печь</button>
                             <button class="btn btn-sm btn-secondary" onclick="loadZoneTemplate('conveyor_oven')">🏗️ Конвейерная</button>
-                        </div>
+                        </div> -->
 
                         <!-- Кнопки создания зон -->
                         <div class="zone-buttons">

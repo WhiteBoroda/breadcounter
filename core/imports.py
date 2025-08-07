@@ -39,7 +39,7 @@ except ImportError:
     TF_AVAILABLE = False
 
 try:
-    from flask import Flask, render_template_string, request, jsonify, send_file, url_for
+    from flask import Flask, render_template, render_template_string, request, jsonify, send_file, url_for
     from flask_cors import CORS
     from werkzeug.utils import secure_filename
 

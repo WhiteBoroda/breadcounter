@@ -3,6 +3,7 @@
 
 from core.imports import *
 from core.batch_training import BatchTrainingManager
+from detection.coral_bread_detector import CoralBreadDetector
 import cv2
 import os
 
@@ -17,9 +18,9 @@ class AdvancedTrainingModule:
         # Настройка путей к шаблонам и статическим файлам
         template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'templates'))
         static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'static'))
-        print(*template_dir)
-        print(*static_dir)
-
+        print(f"📁 Template dir: {template_dir}")
+        print(f"📁 Static dir: {static_dir}")
+        
         self.app.template_folder = template_dir
         self.app.static_folder = static_dir
         self.app.static_url_path = '/static'
@@ -49,6 +50,7 @@ class AdvancedTrainingModule:
         }
         self.detected_objects = []
         self.training_data = []
+        self.coral_detector = CoralBreadDetector(use_coral=True)
 
         # Создание директорий
         for folder in ['uploads', 'temp_uploads', 'training_data', 'training_data/zones', 'training_data/batches']:
@@ -500,6 +502,56 @@ class AdvancedTrainingModule:
                 })
 
         # === ДЕТЕКЦИЯ И АННОТАЦИИ ===
+        def _detect_bread_objects(self):
+            """Обновленная детекция с Coral TPU и трекингом"""
+            if self.video_cap is None:
+                return []
+
+            try:
+                self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_index)
+                ret, frame = self.video_cap.read()
+
+                if not ret:
+                    return []
+
+                # Используем Coral детектор
+                detected_objects, total_count = self.coral_detector.process_frame(frame)
+
+                # Сохраняем общий счет для отображения
+                self.total_bread_count = total_count
+
+                return detected_objects
+
+            except Exception as e:
+                print(f"❌ Ошибка детекции: {e}")
+                return []
+
+        @self.app.route('/api/training/total_count')
+        def get_total_count():
+            """Получение общего счета хлеба"""
+            try:
+                stats = self.coral_detector.get_statistics()
+                return jsonify({
+                    'success': True,
+                    'total_count': stats['total_count'],
+                    'active_tracks': stats['active_tracks'],
+                    'using_coral': stats['using_coral'],
+                    'statistics': stats
+                })
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @self.app.route('/api/training/reset_count', methods=['POST'])
+        def reset_count():
+            """Сброс счетчика"""
+            try:
+                self.coral_detector.reset_counting()
+                return jsonify({
+                    'success': True,
+                    'message': 'Счетчик сброшен'
+                })
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
 
         @self.app.route('/api/training/detect')
         def detect_objects():

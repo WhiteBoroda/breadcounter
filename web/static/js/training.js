@@ -120,6 +120,19 @@ function setupEventListeners() {
     console.log('✅ Обработчики событий настроены');
 }
 
+function toggleRightPanel(show) {
+    const grid = document.querySelector('.main-grid');
+    const rightPanel = document.querySelector('.panel:last-child');
+
+    if (show) {
+        grid.classList.remove('two-column');
+        rightPanel.style.display = 'block';
+    } else {
+        grid.classList.add('two-column');
+        rightPanel.style.display = 'none';
+    }
+}
+
 // === ОБРАБОТЧИКИ DRAG & DROP ===
 
 function handleDragEnter(e) {
